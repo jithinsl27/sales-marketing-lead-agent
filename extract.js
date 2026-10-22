@@ -100,42 +100,56 @@ async function fromFreelancer(intent, query, signal) {
 }
 
 /* ---------- one run ---------- */
+// Saves records as each source finishes (so the table fills in live), reports progress,
+// and stops early when an admin presses Stop (checked every few seconds, works across instances).
 export async function runExtract({ store, ai, trigger }) {
   const started = Date.now();
   const lock = await store.acquireExtractLock(started, 9 * 60_000);
-  if (!lock.ok) return { skipped: true, reason: "A run is already in progress." };
+  if (!lock.ok) return { skipped: true, reason: "An extract is already running." };
   const state = lock.state || {};
+  if (trigger === "schedule" && state.paused) { await store.setExtractState({ runningSince: 0 }); return { skipped: true, reason: "Automatic extract is paused." }; }
   const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 240_000);
-  const report = { trigger, startedAt: started, added: 0, seen: 0, dropped: 0, bySource: {}, errors: [] };
+  const report = { trigger, startedAt: started, added: 0, seen: 0, dropped: 0, bySource: {}, errors: [], cancelled: false };
   const n = state.rotation || 0;
+  const seen = new Set();
+  const progress = phase => store.setExtractState({ progress: { phase, added: report.added, at: Date.now() } }).catch(() => {});
+  const watcher = setInterval(async () => {
+    try { const s = await store.getExtractState(); if ((s.cancelRequestedAt || 0) >= started) { report.cancelled = true; ctl.abort(); } } catch {}
+  }, 4000);
+  const save = async items => {
+    for (const c of items) {
+      if (seen.has(c.id)) continue; seen.add(c.id); report.seen++;
+      const ts = Date.now(); // stamped at write time so browsers that sync mid-run pick every record up
+      const created = await store.createExtractIfNew(c.id, { ...c, addedAt: ts, updatedAt: ts, remarks: "", status: "new" });
+      if (created) { report.added++; report.bySource[c.source] = (report.bySource[c.source] || 0) + 1; }
+    }
+  };
   try {
-    const candidates = [];
-    // Web: one grounded search per run, rotating through intents and markets (keeps Google Search grounding inside the free monthly allowance).
+    await progress("Starting");
+    // Web: grounded searches, rotating through intents and markets (keeps Google Search grounding inside the free monthly allowance).
     const perRun = Math.max(1, Math.min(4, Number(process.env.EXTRACT_WEB_SEARCHES_PER_RUN || 1)));
-    for (let i = 0; i < perRun; i++) {
+    for (let i = 0; i < perRun && !ctl.signal.aborted; i++) {
       const k = n * perRun + i;
       const step = WEB_PLAN[k % WEB_PLAN.length], market = MARKETS[Math.floor(k / WEB_PLAN.length) % MARKETS.length];
-      try { const r = await fromWeb(ai, step, market, ctl.signal); candidates.push(...r.items); report.dropped += r.dropped; }
-      catch (e) { report.errors.push(`Web search (${step.intent}): ${e.message}`); }
+      await progress(`Searching the web: ${INTENTS[step.intent]} in ${market}`);
+      try { const r = await fromWeb(ai, step, market, ctl.signal); report.dropped += r.dropped; await save(r.items); }
+      catch (e) { if (!ctl.signal.aborted) report.errors.push(`Web search (${step.intent}): ${e.message}`); }
     }
     // Freelancer.com: a few queries per run, rotating.
     const fq = Object.entries(FREELANCER_QUERIES).flatMap(([intent, qs]) => qs.map(q => [intent, q]));
     const picks = Array.from({ length: 4 }, (_, i) => fq[(n * 4 + i) % fq.length]);
     for (const [intent, q] of picks) {
-      try { candidates.push(...await fromFreelancer(intent, q, ctl.signal)); }
-      catch (e) { report.errors.push(`Freelancer.com (${q}): ${e.message}`); }
+      if (ctl.signal.aborted) break;
+      await progress(`Checking Freelancer.com: "${q}"`);
+      try { await save(await fromFreelancer(intent, q, ctl.signal)); }
+      catch (e) { if (!ctl.signal.aborted) report.errors.push(`Freelancer.com (${q}): ${e.message}`); }
     }
-    const unique = [...new Map(candidates.map(c => [c.id, c])).values()];
-    report.seen = unique.length;
-    for (const c of unique) {
-      const ts = Date.now(); // stamped at write time so browsers that sync mid-run still pick every record up
-      const created = await store.createExtractIfNew(c.id, { ...c, addedAt: ts, updatedAt: ts, remarks: "", status: "new" });
-      if (created) { report.added++; report.bySource[c.source] = (report.bySource[c.source] || 0) + 1; }
-    }
+    if (ctl.signal.aborted && !report.cancelled) report.errors.push("Stopped after the 4-minute time limit.");
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timer); clearInterval(watcher);
     report.finishedAt = Date.now();
-    await store.setExtractState({ runningSince: 0, rotation: n + 1, lastRun: report, lastSuccessAt: report.errors.length < 1 ? report.finishedAt : (state.lastSuccessAt || 0),
+    await store.setExtractState({ runningSince: 0, progress: null, rotation: n + 1, lastRun: report,
+      lastSuccessAt: report.errors.length < 1 && !report.cancelled ? report.finishedAt : (state.lastSuccessAt || 0),
       totalAdded: (state.totalAdded || 0) + report.added });
   }
   return report;

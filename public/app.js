@@ -670,10 +670,13 @@ function buildExtract(){
   $("#xStatus").addEventListener("change", e => { S.xf.status = e.target.value; renderExtract(true); });
   $("#xIntents").addEventListener("click", e => { const b = e.target.closest("[data-xi]"); if (b) { S.xf.intent = b.dataset.xi; renderExtract(true); } });
   $("#xExport").addEventListener("click", exportExtractCsv);
-  $("#xRun").addEventListener("click", async () => {
-    const b = $("#xRun"); b.disabled = true; b.textContent = "Running… (up to 4 min)";
-    try { const r = await api("POST", "/api/extract/run"); toast(r.skipped ? r.reason : `Done: ${r.added} new record${r.added === 1 ? "" : "s"} added`); await syncExtracts(false); }
-    catch (err) { toast(errMsg(err)); } finally { b.disabled = false; b.textContent = "Run now"; }
+  $("#xStart").addEventListener("click", startExtract);
+  $("#xStop").addEventListener("click", stopExtract);
+  $("#xAuto").addEventListener("change", async e => {
+    const on = e.target.checked;
+    try { const r = await api("POST", "/api/extract/auto", { enabled: on }); S.xState = { ...S.xState, ...r.state }; toast(on ? "Automatic extract is on: every 30 minutes" : "Automatic extract is paused"); }
+    catch (err) { e.target.checked = !on; toast(errMsg(err)); }
+    renderExtract();
   });
   const tbl = $("#xTable");
   tbl.addEventListener("focusout", async e => {
@@ -701,12 +704,63 @@ function buildExtract(){
     }
   });
 }
+function paintRunControls(){
+  const st = S.xState || {}; const admin = isAdmin();
+  $("#xStart").hidden = !admin || !!st.running;
+  $("#xStop").hidden = !admin || !st.running;
+  $("#xStop").disabled = !!st.stopping; $("#xStop").textContent = st.stopping ? "Stopping…" : "Stop extract";
+  $("#xAuto").checked = !st.paused;
+  const box = $("#xRunBox");
+  if (st.running) {
+    box.hidden = false; box.className = "runbox";
+    box.innerHTML = `<span class="spin"></span><span class="phase"></span><div class="bar"><i></i></div><span class="meta"></span>`;
+    box.querySelector(".phase").textContent = st.stopping ? "Stopping after the current step…" : (st.progress?.phase || "Starting…");
+    box.querySelector(".meta").textContent = `Started ${ago(st.runningSince || Date.now())} · ${st.progress?.added || 0} new so far`;
+  } else if (S.xJustFinished) {
+    const r = st.lastRun || {}; box.hidden = false; box.className = "runbox " + (r.cancelled ? "stopped" : "done");
+    box.innerHTML = `<span class="phase"></span><span class="meta"></span><button class="btn small ghost" type="button" id="xDismiss">Dismiss</button>`;
+    box.querySelector(".phase").textContent = r.cancelled ? `Extract stopped: ${r.added || 0} new record${r.added === 1 ? "" : "s"} saved` : `Extract finished: ${r.added || 0} new record${r.added === 1 ? "" : "s"} added`;
+    box.querySelector(".meta").textContent = r.added ? "New rows are marked with an orange edge in the table below." : "Nothing new this time; the table shows everything found so far.";
+    $("#xDismiss").onclick = () => { S.xJustFinished = false; paintRunControls(); };
+  } else box.hidden = true;
+}
+let xWatch = null;
+function watchExtract(){
+  clearTimeout(xWatch);
+  if (!S.signedIn) return;
+  xWatch = setTimeout(async () => {
+    try {
+      const { state } = await api("GET", "/api/extract/state");
+      const was = S.xState?.running; S.xState = { ...S.xState, ...state };
+      if (was && !state.running) { S.xJustFinished = true; await syncExtracts(true); toast(state.lastRun?.cancelled ? "Extract stopped" : `Extract finished: ${state.lastRun?.added || 0} new`); }
+      else { if (state.progress?.added) await syncExtracts(false); renderExtract(); }
+    } catch {}
+    if (S.xState?.running) watchExtract(); else xWatch = null;
+  }, 3000);
+}
+async function startExtract(){
+  const b = $("#xStart"); b.disabled = true;
+  try {
+    const r = await api("POST", "/api/extract/start");
+    S.xState = { ...S.xState, ...r.state, running: true, runningSince: r.state.runningSince || Date.now(), progress: r.state.progress || { phase: "Starting…", added: 0 } };
+    S.xJustFinished = false; if (r.message && r.message !== "Extract started.") toast(r.message);
+    renderExtract(); watchExtract();
+  } catch (err) { toast(errMsg(err)); } finally { b.disabled = false; }
+}
+async function stopExtract(){
+  const b = $("#xStop"); b.disabled = true;
+  try { const r = await api("POST", "/api/extract/stop"); S.xState = { ...S.xState, ...r.state }; toast(r.message || "Stopping…"); renderExtract(); watchExtract(); }
+  catch (err) { toast(errMsg(err)); b.disabled = false; }
+}
 function renderExtract(force){
   if (!$("#xTable")) return;
   const st = S.xState;
+  paintRunControls();
+  if (st?.running && !xWatch) watchExtract();
   $("#xState").innerHTML = st ? [
     `<span>Total records: <b>${S.xTotal ?? S.xMap.size}</b></span>`,
-    st.running ? `<span><b>Running now…</b></span>` : st.lastRun?.finishedAt ? `<span>Last run: <b>${esc(ago(st.lastRun.finishedAt))}</b> · added <b>${st.lastRun.added || 0}</b></span>` : `<span>No runs yet. The first scheduled run starts within 30 minutes of deploying.</span>`,
+    st.paused ? `<span class="due-today">Automatic extract is paused</span>` : `<span>Automatic extract: every 30 minutes</span>`,
+    st.running ? "" : st.lastRun?.finishedAt ? `<span>Last run: <b>${esc(ago(st.lastRun.finishedAt))}</b> · added <b>${st.lastRun.added || 0}</b></span>` : `<span>No runs yet. The first scheduled run starts within 30 minutes of deploying.</span>`,
     st.lastRun?.errors?.length ? `<span class="due-over" title="${esc(st.lastRun.errors.join(" | "))}">Last run had ${st.lastRun.errors.length} source error${st.lastRun.errors.length === 1 ? "" : "s"}</span>` : ""
   ].join("") : "";
   const all = [...S.xMap.values()];
@@ -720,7 +774,7 @@ function renderExtract(force){
   const rows = all.filter(x => (S.xf.intent === "all" || x.intent === S.xf.intent) && (S.xf.status === "all" || (x.status || "new") === S.xf.status))
     .filter(x => !q || [x.title, x.need, x.personName, x.company, x.location, x.platform, x.remarks].some(v => (v || "").toLowerCase().includes(q)))
     .sort((a, b) => b.addedAt - a.addedAt);
-  if (!all.length) { tbl.innerHTML = `<div class="empty"><h3>No records yet</h3><p>Extract searches public posts every 30 minutes and adds new finds here with the date and time.${isAdmin() ? " Admins can press Run now to start one immediately." : ""}</p></div>`; return; }
+  if (!all.length) { tbl.innerHTML = `<div class="empty"><h3>No records yet</h3><p>Extract searches public posts every 30 minutes and adds new finds here with the date and time.${isAdmin() ? " Admins can press Start extract to run one now." : ""}</p></div>`; return; }
   if (!rows.length) { tbl.innerHTML = `<div class="empty"><h3>No matches</h3><p>Change the filters or clear the search.</p></div>`; return; }
   const ro = !canWrite();
   tbl.innerHTML = `<table class="xt"><thead><tr><th>Added</th><th>Requirement</th><th>Who &amp; where</th><th>Contact (as posted)</th><th>Source</th><th>Remarks</th><th>Status</th></tr></thead><tbody>` +
@@ -853,7 +907,7 @@ async function start(){
   if (!canWrite()) { const g = $("#globalBanner"); g.hidden = false; g.className = "banner"; g.style.marginBottom = "16px"; g.textContent = "You have view-only access. Ask an admin to make you a Member so you can add and update leads."; }
   paintMe();
   go((location.hash || "").slice(1) || (me.mustChangePassword ? "products" : "today"));
-  $("#xRun").hidden = !isAdmin();
+  ["#xAutoWrap"].forEach(s => $(s).hidden = !isAdmin());
   const [cfg] = await Promise.all([api("GET", "/api/config").catch(() => null), loadTeam(), syncLeads(true), syncExtracts(true)]);
   if (cfg) { S.cfg = cfg.config; onCfg(); }
   if (isAdmin()) api("GET", "/api/admin/users").then(r => { const n = r.users.filter(u => u.status === "pending").length; $("#pendingBadge").hidden = !n; $("#pendingBadge").textContent = n; }).catch(() => {});

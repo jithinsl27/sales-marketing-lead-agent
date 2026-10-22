@@ -54,7 +54,8 @@ function fakeAI() {
         why: ["Growing headcount", "Shift-based staff"], pains: ["Manual attendance registers"], contacts: ["Founder / MD — signs off on software"],
         opener: "Saw you're hiring two HR executives in Pune this month.", questions: ["How do you track attendance today?"], unknowns: ["Current HR tool"] };
     },
-    async search(prompt) {
+    async search(prompt, signal) {
+      await new Promise((ok, no) => { const t = setTimeout(ok, Number(process.env.DEV_FAKE_DELAY || 0)); signal?.addEventListener("abort", () => { clearTimeout(t); no(new Error("aborted")); }); });
       const intent = (prompt.match(/INTENT=(\w+)/) || [])[1] || "crm";
       return {
         text: JSON.stringify([{ title: `Looking for a ${intent} solution for our 40-person team`, need: "Small distributor in Pune comparing tools; wants a demo this month.",

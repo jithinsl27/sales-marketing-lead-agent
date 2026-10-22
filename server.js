@@ -342,14 +342,52 @@ async function schedulerCaller(req) {
     return p.email_verified && String(p.email).toLowerCase() === EXTRACT_INVOKER;
   } catch { return false; }
 }
-route("POST", "/api/extract/run", async req => {
+route("POST", "/api/extract/run", async (req, res, body) => {
   let trigger = "schedule";
-  if (!(await schedulerCaller(req))) { const u = await auth(req, ["admin"]); trigger = "manual:" + u.email; limit("extract:" + u.email, 6, 3600_000); }
+  if (await schedulerCaller(req)) { if (/^manual:/.test(String(body.trigger || ""))) trigger = String(body.trigger).slice(0, 200); }
+  else { const u = await auth(req, ["admin"]); trigger = "manual:" + u.email; limit("extract:" + u.email, 6, 3600_000); }
   const r = await runExtract({ store, ai, trigger });
   console.log("extract run", JSON.stringify({ trigger, added: r.added, seen: r.seen, dropped: r.dropped, errors: r.errors, skipped: r.skipped }));
   return r;
 });
-const publicState = s => ({ lastRun: s.lastRun || null, lastSuccessAt: s.lastSuccessAt || 0, totalAdded: s.totalAdded || 0, running: !!(s.runningSince && Date.now() - s.runningSince < 9 * 60_000) });
+const publicState = s => {
+  const running = !!(s.runningSince && Date.now() - s.runningSince < 9 * 60_000);
+  return { lastRun: s.lastRun || null, lastSuccessAt: s.lastSuccessAt || 0, totalAdded: s.totalAdded || 0, running, runningSince: running ? s.runningSince : 0,
+    progress: running ? (s.progress || null) : null, stopping: running && (s.cancelRequestedAt || 0) >= s.runningSince, paused: !!s.paused };
+};
+// Start a run without making the browser wait: on Cloud Run the app calls its own /api/extract/run
+// with a Google-signed token for its service account (same check as Cloud Scheduler), so the run keeps its CPU.
+async function selfInvoke(url, trigger) {
+  const r = await fetch(`http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=${encodeURIComponent(EXTRACT_AUDIENCE)}`, { headers: { "Metadata-Flavor": "Google" } });
+  if (!r.ok) throw new Error("metadata token " + r.status);
+  const token = await r.text();
+  fetch(url, { method: "POST", headers: { authorization: "Bearer " + token, "x-cg": "1", "content-type": "application/json" }, body: JSON.stringify({ trigger }) })
+    .then(x => x.text()).catch(e => console.error("extract self-invoke failed:", e.message));
+}
+route("POST", "/api/extract/start", async req => {
+  const u = await auth(req, ["admin"]);
+  limit("extract:" + u.email, 12, 3600_000);
+  const s = await store.getExtractState();
+  if (s.runningSince && Date.now() - s.runningSince < 9 * 60_000) return { state: publicState(s), message: "An extract is already running." };
+  const trigger = "manual:" + u.email;
+  if (process.env.K_SERVICE) await selfInvoke(appUrl(req) + "/api/extract/run", trigger);
+  else runExtract({ store, ai, trigger }).catch(e => console.error("extract failed", e));
+  await new Promise(r => setTimeout(r, 1500));
+  return { state: publicState(await store.getExtractState()), message: "Extract started." };
+});
+route("GET", "/api/extract/state", async req => { await auth(req); return { state: publicState(await store.getExtractState()) }; });
+route("POST", "/api/extract/stop", async req => {
+  const u = await auth(req, ["admin"]);
+  const s = await store.getExtractState();
+  if (!(s.runningSince && Date.now() - s.runningSince < 9 * 60_000)) return { state: publicState(s), message: "No extract is running." };
+  await store.setExtractState({ cancelRequestedAt: Date.now(), cancelledBy: u.email });
+  return { state: publicState(await store.getExtractState()), message: "Stopping…" };
+});
+route("POST", "/api/extract/auto", async (req, res, body) => {
+  const u = await auth(req, ["admin"]);
+  await store.setExtractState({ paused: !body.enabled, pausedBy: body.enabled ? "" : u.email, pausedAt: body.enabled ? 0 : Date.now() });
+  return { state: publicState(await store.getExtractState()) };
+});
 route("GET", "/api/extracts", async (req, res, body, params, url) => {
   await auth(req);
   const since = Number(url.searchParams.get("since")) || 0;

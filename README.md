@@ -27,7 +27,7 @@ It runs on **Google Cloud Run**, stores data in **Firestore**, uses **Gemini 3.8
 - **Contact details** are copied only as the poster published them in the post. Nothing is looked up about anyone, and no street or home addresses are stored.
 - **No duplicates:** each source URL is stored once, so the table only grows with new records.
 - **Schedule and cost:**
-  - Cloud Scheduler calls the app every 30 minutes with a Google-signed token. Only that signed token, or an admin pressing **Run now**, can start a run.
+  - Cloud Scheduler calls the app every 30 minutes with a Google-signed token. Only that signed token, or an admin pressing **Start extract**, can start a run. Admins can also **stop** a running extract and turn the **30-minute schedule on or off** from the Extract tab.
   - Each run does one Google-grounded search (rotating through the 4 needs and India → Gulf → global) plus a few Freelancer.com queries. That's about 1,440 grounded prompts a month.
   - Gemini 3 includes 5,000 grounding queries a month free, then $14 per 1,000. A single prompt can trigger more than one query.
   - To search more per run, set `EXTRACT_WEB_SEARCHES_PER_RUN` (1–4).
