@@ -81,7 +81,6 @@
       <div class="row">
         <label class="switch" id="xAutoWrap" hidden><input type="checkbox" id="xAuto" role="switch"><span class="track" aria-hidden="true"></span><span>Auto every 30 min</span></label>
         <button class="btn" id="xExport">Export CSV</button>
-        <button class="btn ghost" id="xClear" hidden>Clear all</button>
         <button class="btn danger" id="xStop" hidden>Stop extract</button>
         <button class="btn primary" id="xStart" hidden>Start extract</button>
       </div>
@@ -89,13 +88,21 @@
     <div id="xRunBox" class="runbox" hidden aria-live="polite"></div>
     <div class="xstate" id="xState"></div>
     <div class="filters">
-      <div class="field" style="flex:1 1 220px;max-width:300px"><label class="sr" for="xSearch">Search</label><input type="search" id="xSearch" placeholder="Search need, name, company, location"></div>
+      <div class="field" style="flex:1 1 220px;max-width:300px"><label class="sr" for="xSearch">Search</label><input type="search" id="xSearch" placeholder="Search everything"></div>
       <span id="xIntents" class="filters"></span>
-      <div class="field" style="flex:0 1 190px"><label class="sr" for="xAssigned">Assigned to</label><select id="xAssigned"></select></div>
-      <div class="field" style="flex:0 1 170px"><label class="sr" for="xStatus">Status</label><select id="xStatus"><option value="all">All statuses</option><option value="new">New</option><option value="contacted">Contacted</option><option value="interested">Interested</option><option value="not_relevant">Not relevant</option></select></div>
-      <button class="btn small ghost" type="button" id="xReset">Reset filters</button>
     </div>
-    <div class="card pipe"><div class="xwrap" id="xTable"></div></div>
+    <div class="filters">
+      <div class="field" style="flex:0 1 200px"><label for="xCountry" class="lbl">Country</label><select id="xCountry"></select></div>
+      <div class="field" style="flex:0 1 auto"><span class="lbl" id="xValLbl">Value (USD, approx.)</span>
+        <div class="row" style="gap:6px;flex-wrap:nowrap" role="group" aria-labelledby="xValLbl">
+          <label class="sr" for="xVmin">Minimum value in US dollars</label><input type="text" inputmode="numeric" id="xVmin" placeholder="Min $" style="width:110px">
+          <span class="note">to</span>
+          <label class="sr" for="xVmax">Maximum value in US dollars</label><input type="text" inputmode="numeric" id="xVmax" placeholder="Max $" style="width:110px">
+        </div></div>
+      <div class="field" style="flex:0 1 auto;align-self:flex-end"><button class="btn" type="button" id="xReset">Clear all</button></div>
+      <span class="note" id="xShowing" style="align-self:flex-end;padding-bottom:10px"></span>
+    </div>
+    <div class="card pipe"><div class="xwrap"><table class="xt"><thead id="xHead"></thead><tbody id="xBody"></tbody></table><div id="xEmpty" hidden></div></div></div>
   </section>
 
   <!-- FIND -->

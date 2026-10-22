@@ -60,7 +60,9 @@ function fakeAI() {
       return {
         text: JSON.stringify([{ title: `Looking for a ${intent} solution for our 40-person team`, need: "Small distributor in Pune comparing tools; wants a demo this month.",
           personName: "Demo Poster", company: "Demo Traders", location: "Pune, India", contactEmail: "", contactPhone: "", contactUrl: "https://www.linkedin.com/in/demo",
-          platform: "LinkedIn", sourceUrl: `https://www.linkedin.com/posts/demo-${intent}-${Math.floor(Date.now() / 1800000)}`, postedDate: new Date().toISOString().slice(0, 10), budget: "" },
+          platform: "LinkedIn", sourceUrl: `https://www.linkedin.com/posts/demo-${intent}-${Math.floor(Date.now() / 1800000)}`, postedDate: new Date().toISOString().slice(0, 10),
+          budget: { crm: "₹2,50,000", hr: "AED 15k", finance: "$3,000", build: "$800–1,500", other: "" }[intent] || "", budgetAmount: { crm: 250000, hr: 15000, finance: 3000, build: 1500 }[intent] || "",
+          budgetCurrency: { crm: "INR", hr: "AED", finance: "USD", build: "USD" }[intent] || "", country: intent === "hr" ? "UAE" : "India", location: intent === "hr" ? "Dubai, UAE" : "Pune, India" },
           { title: "Unverifiable item", sourceUrl: "https://made-up.example/post", platform: "Blog" }]),
         sources: [{ title: "linkedin.com", uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/x", domain: "linkedin.com" }], queries: ["demo"]
       };

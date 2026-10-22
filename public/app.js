@@ -651,10 +651,46 @@ function buildFindProductButtons(){
 }
 
 /* ---------- EXTRACT ---------- */
+const X_FILTERS_EMPTY = { intent: "all", q: "", country: "all", vmin: "", vmax: "", added: "all", req: "", who: "", contact: "all", source: "all", assigned: "all", remarks: "all", status: "all" };
+// Approximate USD rates, only for the value filter. Edit if you need different rates.
+const USD_RATES = { USD: 1, INR: 0.012, AED: 0.272, SAR: 0.267, QAR: 0.275, OMR: 2.6, BHD: 2.65, KWD: 3.25, EUR: 1.08, GBP: 1.27, AUD: 0.66, CAD: 0.73, SGD: 0.74, PKR: 0.0036, BDT: 0.0083, LKR: 0.0033, NPR: 0.0075, ZAR: 0.055, MYR: 0.22, NZD: 0.6 };
+function parseValueUsd(text){
+  const s = String(text || ""); if (!s.trim()) return null;
+  const cur = /₹|\bINR\b|\bRs\.?/i.test(s) ? "INR" : /\bAED\b|\bdhs?\b/i.test(s) ? "AED" : /\bSAR\b|\bSR\b/i.test(s) ? "SAR" : /\bQAR\b/i.test(s) ? "QAR" : /\bOMR\b/i.test(s) ? "OMR" : /\bBHD\b/i.test(s) ? "BHD" : /\bKWD\b/i.test(s) ? "KWD"
+    : /€|\bEUR\b/i.test(s) ? "EUR" : /£|\bGBP\b/i.test(s) ? "GBP" : /\bAUD\b|A\$/i.test(s) ? "AUD" : /\bCAD\b|C\$/i.test(s) ? "CAD" : /\$|\bUSD\b/i.test(s) ? "USD" : null;
+  if (!cur) return null;
+  let max = null;
+  for (const m of s.matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(k|lakhs?|lacs?|l|cr|crores?|m|mn|million)?\b/gi)) {
+    let n = parseFloat(m[1].replace(/,/g, "")); const u = (m[2] || "").toLowerCase();
+    if (u === "k") n *= 1e3; else if (/^(lakh|lac|l)/.test(u)) n *= 1e5; else if (/^cr/.test(u)) n *= 1e7; else if (/^(m|mn|million)$/.test(u)) n *= 1e6;
+    if (!isNaN(n) && (max === null || n > max)) max = n;
+  }
+  return max === null ? null : Math.round(max * USD_RATES[cur]);
+}
+const valueUsd = x => typeof x.valueUsd === "number" ? x.valueUsd : parseValueUsd(x.budget);
+const COUNTRY_ALIASES = [
+  [/\b(india|bharat|bengaluru|bangalore|mumbai|pune|delhi|ncr|noida|gurgaon|gurugram|hyderabad|chennai|kolkata|ahmedabad|kochi|cochin|coimbatore|jaipur|indore|surat|lucknow|chandigarh|trivandrum|thiruvananthapuram|nagpur|vadodara|ludhiana|mysore|vizag|visakhapatnam)\b/i, "India"],
+  [/\b(uae|u\.a\.e|united arab emirates|dubai|abu dhabi|sharjah|ajman|ras al khaimah|fujairah)\b/i, "UAE"],
+  [/\b(ksa|saudi|riyadh|jeddah|dammam|khobar|mecca|makkah|medina|madinah)\b/i, "Saudi Arabia"],
+  [/\b(qatar|doha)\b/i, "Qatar"], [/\b(oman|muscat)\b/i, "Oman"], [/\b(bahrain|manama)\b/i, "Bahrain"], [/\b(kuwait)\b/i, "Kuwait"],
+  [/\b(usa|u\.s\.a?|united states|america|new york|california|texas|san francisco)\b/i, "United States"],
+  [/\b(uk|u\.k|united kingdom|england|london|scotland|britain)\b/i, "United Kingdom"],
+  [/\b(canada|toronto|vancouver)\b/i, "Canada"], [/\b(australia|sydney|melbourne)\b/i, "Australia"], [/\b(singapore)\b/i, "Singapore"],
+  [/\b(pakistan|karachi|lahore)\b/i, "Pakistan"], [/\b(bangladesh|dhaka)\b/i, "Bangladesh"], [/\b(sri lanka|colombo)\b/i, "Sri Lanka"], [/\b(nepal|kathmandu)\b/i, "Nepal"],
+  [/\b(germany|berlin)\b/i, "Germany"], [/\b(egypt|cairo)\b/i, "Egypt"], [/\b(nigeria|lagos)\b/i, "Nigeria"], [/\b(kenya|nairobi)\b/i, "Kenya"], [/\b(south africa)\b/i, "South Africa"]
+];
+const xCountry = x => {
+  const raw = [x.country, x.location].filter(Boolean).join(" , ");
+  if (!raw) return "Not stated";
+  for (const [re, name] of COUNTRY_ALIASES) if (re.test(raw)) return name;
+  if (/remote|worldwide|global|anywhere/i.test(raw)) return "Remote / global";
+  const last = raw.split(",").map(s => s.trim()).filter(Boolean).pop() || "";
+  return last ? last.replace(/\b\w/g, c => c.toUpperCase()) : "Not stated";
+};
 const X_STATUS = [["new","New"],["contacted","Contacted"],["interested","Interested"],["not_relevant","Not relevant"]];
 const X_CH = [["dm","Direct message"],["reply","Reply to post"],["email","Email"],["proposal","Proposal / bid"]];
 Object.assign(S, { xMap: new Map(), xLast: 0, xIntents: { build: "Freelance build", hr: "Needs HR software", crm: "Needs a CRM", finance: "Needs finance software" },
-  xState: null, xf: { intent: "all", status: "all", q: "", assigned: "all" }, xSeen: ls.get("drops.xseen", 0), xPending: false });
+  xState: null, xf: { ...X_FILTERS_EMPTY }, xSeen: ls.get("drops.xseen", 0), xPending: false });
 const fmtWhen = ms => { const d = new Date(ms); return { day: d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }), time: d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) }; };
 const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
 const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : "";
@@ -678,14 +714,23 @@ async function syncExtracts(full){
   } catch {}
 }
 function buildExtract(){
+  buildExtractHead();
   $("#xSearch").addEventListener("input", e => { S.xf.q = e.target.value.trim().toLowerCase(); renderExtract(true); });
-  $("#xStatus").addEventListener("change", e => { S.xf.status = e.target.value; renderExtract(true); });
+  $("#xCountry").addEventListener("change", e => { S.xf.country = e.target.value; renderExtract(true); });
+  const num = v => v.replace(/[^\d.]/g, "");
+  $("#xVmin").addEventListener("input", e => { S.xf.vmin = num(e.target.value); renderExtract(true); });
+  $("#xVmax").addEventListener("input", e => { S.xf.vmax = num(e.target.value); renderExtract(true); });
+  $("#xHead").addEventListener("input", e => { const el = e.target.closest("input[data-f]"); if (el) { S.xf[el.dataset.f] = el.value.trim().toLowerCase(); renderExtract(true); } });
+  $("#xHead").addEventListener("change", e => { const el = e.target.closest("select[data-f]"); if (el) { S.xf[el.dataset.f] = el.value; renderExtract(true); } });
   $("#xIntents").addEventListener("click", e => { const b = e.target.closest("[data-xi]"); if (b) { S.xf.intent = b.dataset.xi; renderExtract(true); } });
   $("#xExport").addEventListener("click", exportExtractCsv);
   $("#xStart").addEventListener("click", startExtract);
-  $("#xAssigned").addEventListener("change", e => { S.xf.assigned = e.target.value; renderExtract(true); });
-  $("#xReset").addEventListener("click", () => { S.xf = { intent: "all", status: "all", q: "", assigned: "all" }; $("#xSearch").value = ""; $("#xStatus").value = "all"; renderExtract(true); toast("Filters cleared"); });
-  $("#xClear").addEventListener("click", openClearAll);
+  $("#xReset").addEventListener("click", () => {
+    S.xf = { ...X_FILTERS_EMPTY };
+    ["#xSearch", "#xVmin", "#xVmax"].forEach(s => $(s).value = "");
+    $$("#xHead [data-f]").forEach(el => { el.value = el.tagName === "SELECT" ? "all" : ""; });
+    renderExtract(true); toast("All filters cleared");
+  });
   $("#xStop").addEventListener("click", stopExtract);
   $("#xAuto").addEventListener("change", async e => {
     const on = e.target.checked;
@@ -693,7 +738,7 @@ function buildExtract(){
     catch (err) { e.target.checked = !on; toast(errMsg(err)); }
     renderExtract();
   });
-  const tbl = $("#xTable");
+  const tbl = $("#xBody");
   tbl.addEventListener("focusout", async e => {
     const ta = e.target.closest("textarea[data-xr]"); if (!ta) return;
     const x = S.xMap.get(ta.dataset.xr);
@@ -731,7 +776,6 @@ function buildExtract(){
 function paintRunControls(){
   const st = S.xState || {}; const admin = isAdmin();
   $("#xStart").hidden = !admin || !!st.running;
-  $("#xClear").hidden = !admin || !!st.running || !S.xMap.size;
   $("#xStop").hidden = !admin || !st.running;
   $("#xStop").disabled = !!st.stopping; $("#xStop").textContent = st.stopping ? "Stopping…" : "Stop extract";
   $("#xAuto").checked = !st.paused;
@@ -778,7 +822,7 @@ async function stopExtract(){
   catch (err) { toast(errMsg(err)); b.disabled = false; }
 }
 function renderExtract(force){
-  if (!$("#xTable")) return;
+  if (!$("#xBody")) return;
   const st = S.xState;
   paintRunControls();
   if (st?.running && !xWatch) watchExtract();
@@ -789,37 +833,74 @@ function renderExtract(force){
     st.lastRun?.errors?.length ? `<span class="due-over" title="${esc(st.lastRun.errors.join(" | "))}">Last run had ${st.lastRun.errors.length} source error${st.lastRun.errors.length === 1 ? "" : "s"}</span>` : ""
   ].join("") : "";
   const all = [...S.xMap.values()];
-  const aSel = $("#xAssigned"), opts = [["all", "Anyone"], ["me", "Assigned to me"], ["none", "Unassigned"], ...assigneeOptions()];
-  if (aSel.dataset.sig !== JSON.stringify(opts)) { aSel.innerHTML = opts.map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join(""); aSel.dataset.sig = JSON.stringify(opts); }
-  aSel.value = opts.some(o => o[0] === S.xf.assigned) ? S.xf.assigned : "all";
-  $("#xReset").hidden = S.xf.intent === "all" && S.xf.status === "all" && !S.xf.q && S.xf.assigned === "all";
+  const f = S.xf;
+  // dynamic filter options
+  const setOpts = (sel, opts) => { const el = $(sel), sig = JSON.stringify(opts); if (el.dataset.sig !== sig) { el.innerHTML = opts.map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join(""); el.dataset.sig = sig; } el.value = opts.some(o => o[0] === el.dataset.cur) ? el.dataset.cur : "all"; };
+  const tally = key => { const m = new Map(); all.forEach(x => { const k = key(x); m.set(k, (m.get(k) || 0) + 1); }); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+  $("#xCountry").dataset.cur = f.country; setOpts("#xCountry", [["all", "All countries"], ...tally(xCountry).map(([k, n]) => [k, `${k} (${n})`])]);
+  $("#xfSource").dataset.cur = f.source; setOpts("#xfSource", [["all", "All"], ...tally(x => x.platform || "Other").map(([k, n]) => [k, `${k} (${n})`])]);
+  $("#xfAssigned").dataset.cur = f.assigned; setOpts("#xfAssigned", [["all", "Anyone"], ["me", "Me"], ["none", "Unassigned"], ...assigneeOptions().map(([v, n]) => [v, n.replace(/ \(you\)$/, "")])]);
+  $$("#xHead [data-f], #xCountry, #xVmin, #xVmax").forEach(el => {
+    const k = el.dataset.f || { xCountry: "country", xVmin: "vmin", xVmax: "vmax" }[el.id];
+    el.classList.toggle("on", !!f[k] && f[k] !== "all");
+  });
+  const filtered = JSON.stringify(f) !== JSON.stringify(X_FILTERS_EMPTY);
+  $("#xReset").disabled = !filtered;
   const cnt = k => k === "all" ? all.length : all.filter(x => x.intent === k).length;
-  $("#xIntents").innerHTML = [["all", "All"], ...Object.entries(S.xIntents)].map(([k, n]) => `<button class="fchip" data-xi="${esc(k)}" aria-pressed="${S.xf.intent === k}">${esc(n)}<span class="mono">${cnt(k)}</span></button>`).join("");
+  $("#xIntents").innerHTML = [["all", "All"], ...Object.entries(S.xIntents)].map(([k, n]) => `<button class="fchip" data-xi="${esc(k)}" aria-pressed="${f.intent === k}">${esc(n)}<span class="mono">${cnt(k)}</span></button>`).join("");
   if (S.tab !== "extract" && !force) return;
-  const tbl = $("#xTable");
-  if (!force && tbl.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") { S.xPending = true; return; }
+  const body = $("#xBody");
+  if (!force && body.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") { S.xPending = true; return; }
   S.xPending = false;
-  const q = S.xf.q;
-  const af = S.xf.assigned;
-  const rows = all.filter(x => (S.xf.intent === "all" || x.intent === S.xf.intent) && (S.xf.status === "all" || (x.status || "new") === S.xf.status))
-    .filter(x => af === "all" || (af === "me" ? x.assignedTo === S.uid : af === "none" ? !x.assignedTo : x.assignedTo === af))
-    .filter(x => !q || [x.title, x.need, x.personName, x.company, x.location, x.platform, x.remarks, assigneeName(x.assignedTo)].some(v => (v || "").toLowerCase().includes(q)))
+  const has = (v, q) => !q || (v || "").toLowerCase().includes(q);
+  const now = Date.now(), win = { "24h": 864e5, "7d": 7 * 864e5, "30d": 30 * 864e5 }[f.added];
+  const vmin = f.vmin === "" ? null : Number(f.vmin), vmax = f.vmax === "" ? null : Number(f.vmax);
+  const rows = all.filter(x =>
+      (f.intent === "all" || x.intent === f.intent)
+      && (!f.q || [x.title, x.need, x.personName, x.company, x.location, x.platform, x.remarks, x.budget, assigneeName(x.assignedTo), xCountry(x)].some(v => has(v, f.q)))
+      && (f.country === "all" || xCountry(x) === f.country)
+      && (vmin === null && vmax === null || ((v) => v !== null && (vmin === null || v >= vmin) && (vmax === null || v <= vmax))(valueUsd(x)))
+      && (!win || now - x.addedAt <= win)
+      && (!f.req || [x.title, x.need, x.budget, S.xIntents[x.intent]].some(v => has(v, f.req)))
+      && (!f.who || [x.personName, x.company, x.location, xCountry(x)].some(v => has(v, f.who)))
+      && (f.contact === "all" || (f.contact === "any" ? !!(x.contactEmail || x.contactPhone || x.contactUrl) : f.contact === "email" ? !!x.contactEmail : f.contact === "phone" ? !!x.contactPhone : f.contact === "link" ? !!x.contactUrl : !(x.contactEmail || x.contactPhone || x.contactUrl)))
+      && (f.source === "all" || (x.platform || "Other") === f.source)
+      && (f.assigned === "all" || (f.assigned === "me" ? x.assignedTo === S.uid : f.assigned === "none" ? !x.assignedTo : x.assignedTo === f.assigned))
+      && (f.remarks === "all" || (f.remarks === "has" ? !!(x.remarks || "").trim() : !(x.remarks || "").trim()))
+      && (f.status === "all" || (x.status || "new") === f.status))
     .sort((a, b) => b.addedAt - a.addedAt);
-  if (!all.length) { tbl.innerHTML = `<div class="empty"><h3>No records yet</h3><p>Extract searches public posts every 30 minutes and adds new finds here with the date and time.${isAdmin() ? " Admins can press Start extract to run one now." : ""}</p></div>`; return; }
-  if (!rows.length) { tbl.innerHTML = `<div class="empty"><h3>No matches</h3><p>Change the filters or clear the search.</p></div>`; return; }
+  $("#xShowing").textContent = all.length ? (filtered ? `Showing ${rows.length} of ${all.length}` : `${all.length} records`) : "";
+  const empty = $("#xEmpty");
+  if (!all.length) { body.innerHTML = ""; empty.hidden = false; empty.innerHTML = `<div class="empty"><h3>No records yet</h3><p>Extract searches public posts every 30 minutes and adds new finds here with the date and time.${isAdmin() ? " Admins can press Start extract to run one now." : ""}</p></div>`; return; }
+  if (!rows.length) { body.innerHTML = ""; empty.hidden = false; empty.innerHTML = `<div class="empty"><h3>No records match these filters</h3><p>Change a filter or press Clear all.</p></div>`; return; }
+  empty.hidden = true;
   const ro = !canWrite();
-  tbl.innerHTML = `<table class="xt"><thead><tr><th>Added</th><th>Requirement</th><th>Who &amp; where</th><th>Contact (as posted)</th><th>Source</th><th>Assigned to</th><th>Remarks</th><th>Status</th></tr></thead><tbody>` +
-    rows.map(x => { const w = fmtWhen(x.addedAt); const src = safeUrl(x.sourceUrl), cu = safeUrl(x.contactUrl);
+  body.innerHTML = rows.map(x => { const w = fmtWhen(x.addedAt); const src = safeUrl(x.sourceUrl), cu = safeUrl(x.contactUrl); const v = valueUsd(x);
       return `<tr class="${x.addedAt > S.xSeen ? "fresh" : ""}">
       <td class="when"><b>${esc(w.day)}</b>${esc(w.time)}</td>
-      <td class="need"><span class="chip i-${esc(x.intent)}">${esc(S.xIntents[x.intent] || x.intent)}</span><div class="t" dir="auto" style="margin-top:6px">${esc(x.title)}</div>${x.need ? `<p dir="auto">${esc(x.need)}</p>` : ""}${x.budget ? `<p>Budget: ${esc(x.budget)}</p>` : ""}</td>
-      <td>${x.personName ? `<div style="font-weight:600">${esc(x.personName)}</div>` : ""}${x.company ? `<div>${esc(x.company)}</div>` : ""}${!x.personName && !x.company ? `<span class="note">Name not stated</span>` : ""}${x.location ? `<div class="note" style="margin-top:4px">${esc(x.location)}</div>` : ""}</td>
+      <td class="need"><span class="chip i-${esc(x.intent)}">${esc(S.xIntents[x.intent] || x.intent)}</span><div class="t" dir="auto" style="margin-top:6px">${esc(x.title)}</div>${x.need ? `<p dir="auto">${esc(x.need)}</p>` : ""}${x.budget ? `<p>Budget: ${esc(x.budget)}${v !== null ? ` <span class="val">≈ $${v.toLocaleString()}</span>` : ""}</p>` : ""}</td>
+      <td>${x.personName ? `<div style="font-weight:600">${esc(x.personName)}</div>` : ""}${x.company ? `<div>${esc(x.company)}</div>` : ""}${!x.personName && !x.company ? `<span class="note">Name not stated</span>` : ""}<div class="note" style="margin-top:4px">${esc([x.location, xCountry(x) !== "Not stated" && !(x.location || "").toLowerCase().includes(xCountry(x).toLowerCase()) ? xCountry(x) : ""].filter(Boolean).join(" · ") || "Location not stated")}</div></td>
       <td><div class="contact">${x.contactEmail ? `<span class="mono" style="font-size:.8rem">${esc(x.contactEmail)}</span>` : ""}${x.contactPhone ? `<span class="mono" style="font-size:.8rem">${esc(x.contactPhone)}</span>` : ""}${cu ? `<a href="${esc(cu)}" target="_blank" rel="noopener noreferrer">Profile / link ↗</a>` : ""}${!x.contactEmail && !x.contactPhone && !cu ? `<span class="note">Reply on the post</span>` : ""}</div></td>
       <td class="src">${src ? `<a href="${esc(src)}" target="_blank" rel="noopener noreferrer">${esc(x.platform || "Open")} ↗</a>` : esc(x.platform)}${x.postedDate ? `<div class="note">Posted ${esc(fmtDate(x.postedDate))}</div>` : ""}</td>
       <td class="assign">${assignCell(x, ro)}</td>
       <td><label class="sr" for="xr-${esc(x.id)}">Remarks</label><textarea id="xr-${esc(x.id)}" data-xr="${esc(x.id)}" placeholder="Add a note for the team" ${ro ? "readonly" : ""}>${esc(x.remarks || "")}</textarea><div class="saved">${x.remarksBy ? esc("by " + ((S.names[x.remarksBy]?.name) || x.remarksBy.split("@")[0])) : ""}</div></td>
       <td><div class="acts" style="flex-direction:column;align-items:stretch"><label class="sr" for="xs-${esc(x.id)}">Status</label><select id="xs-${esc(x.id)}" data-xs="${esc(x.id)}" ${ro ? "disabled" : ""}>${opt(X_STATUS, x.status || "new")}</select>${ro ? "" : `<button class="btn small primary" data-xmsg="${esc(x.id)}">Write message</button>`}${x.leadId ? `<button class="btn small ghost" data-edit="${esc(x.leadId)}">In pipeline</button>` : ro ? "" : `<button class="btn small" data-xlead="${esc(x.id)}">Add to pipeline</button>`}</div></td>
-    </tr>`; }).join("") + `</tbody></table>`;
+    </tr>`; }).join("");
+}
+function buildExtractHead(){
+  const sel = (f, label, opts) => `<label class="sr" for="xf-${f}">Filter ${label}</label><select id="xf-${f}" data-f="${f}">${opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join("")}</select>`;
+  const txt = (f, label, ph) => `<label class="sr" for="xf-${f}">Filter ${label}</label><input type="search" id="xf-${f}" data-f="${f}" placeholder="${ph}">`;
+  $("#xHead").innerHTML = `<tr><th>Added</th><th>Requirement</th><th>Who &amp; where</th><th>Contact (as posted)</th><th>Source</th><th>Assigned to</th><th>Remarks</th><th>Status</th></tr>
+  <tr class="fl">
+    <th>${sel("added", "added", [["all", "Any time"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"]])}</th>
+    <th>${txt("req", "requirement", "Filter…")}</th>
+    <th>${txt("who", "who and where", "Name, company, city…")}</th>
+    <th>${sel("contact", "contact", [["all", "Any"], ["any", "Has contact"], ["email", "Has email"], ["phone", "Has phone"], ["link", "Has link"], ["none", "No contact"]])}</th>
+    <th><label class="sr" for="xfSource">Filter source</label><select id="xfSource" data-f="source"></select></th>
+    <th><label class="sr" for="xfAssigned">Filter assigned to</label><select id="xfAssigned" data-f="assigned"></select></th>
+    <th>${sel("remarks", "remarks", [["all", "Any"], ["has", "Has remarks"], ["none", "No remarks"]])}</th>
+    <th>${sel("status", "status", [["all", "All"], ...X_STATUS])}</th>
+  </tr>`;
 }
 function assignCell(x, ro){
   const who = x.assignedTo;
@@ -830,27 +911,6 @@ function assignCell(x, ro){
   if (!who) return ro ? `<span class="note">Unassigned</span>` : `<button class="btn small" data-xtake="${esc(x.id)}">Take it</button>`;
   if (who === S.uid) return `<span class="chip st-replied">You</span>${ro ? "" : `<div><button class="btn small ghost" data-xrelease="${esc(x.id)}" style="margin-top:6px">Release</button></div>`}`;
   return `<span class="chip st-new">${esc(assigneeName(who))}</span>`;
-}
-function openClearAll(){
-  const n = S.xTotal ?? S.xMap.size;
-  $("#modalRoot").innerHTML = `
-  <div class="scrim" id="scrim"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="clT" style="max-width:480px">
-    <h2 id="clT">Clear all Extract records?</h2>
-    <p>This permanently deletes all <b>${n}</b> records, including their remarks, statuses and assignments, and restarts the search from the beginning. Leads already added to the pipeline are kept.</p>
-    <div class="field"><label for="clIn">Type CLEAR to confirm</label><input type="text" id="clIn" autocomplete="off"></div>
-    <div class="err" id="clErr" role="alert"></div>
-    <div class="mfoot"><button class="btn" data-close type="button">Cancel</button><button class="btn danger" id="clGo" type="button" disabled>Delete ${n} records</button></div>
-  </div></div>`;
-  const close = () => { $("#modalRoot").innerHTML = ""; };
-  $("#scrim").addEventListener("click", e => { if (e.target.id === "scrim" || e.target.closest("[data-close]")) close(); });
-  $("#clIn").focus();
-  $("#clIn").addEventListener("input", e => { $("#clGo").disabled = e.target.value.trim() !== "CLEAR"; });
-  $("#clGo").onclick = async () => {
-    $("#clGo").disabled = true; $("#clGo").textContent = "Deleting…";
-    try { const r = await api("POST", "/api/extracts/clear", { confirm: "CLEAR" }); close(); S.xMap = new Map(); S.xTotal = 0; S.xJustFinished = false;
-      await syncExtracts(true); toast(`Cleared ${r.deleted} records. The next run starts a fresh search.`); }
-    catch (err) { $("#clErr").textContent = errMsg(err); $("#clGo").disabled = false; $("#clGo").textContent = `Delete ${n} records`; }
-  };
 }
 function openExtractMessage(id){
   const x = S.xMap.get(id); if (!x) return;

@@ -25,9 +25,15 @@ It runs on **Google Cloud Run**, stores data in **Firestore**, uses **Gemini 3.8
   - Team members click **Take it** to claim an unassigned record, or **Release** to hand it back. They can't take a record someone else already has.
   - Admins can assign anyone: people with accounts, plus extra **Sales team names** listed in the Team tab.
   - Filter by **Assigned to me**, **Unassigned** or a person.
-- **Resetting:**
-  - **Reset filters** clears the search and filters.
-  - **Clear all** (admins only) permanently deletes every Extract record and restarts the search from the beginning. You confirm by typing CLEAR. Leads already in the pipeline are kept.
+- **Filtering:**
+  - Every column has its own filter under the header:
+    - **Added:** last 24 hours, 7 days or 30 days.
+    - **Requirement** and **Who & where:** text.
+    - **Contact:** has email, phone or link.
+    - **Source:** platform.
+    - **Assigned to**, **Remarks** (has / none) and **Status**.
+  - Above the table: **Country** (worked out from the post's location) and **Value (USD)**, a min–max range on the stated budget converted at approximate rates.
+  - **Clear all** resets every filter and the search. It never deletes records.
 - **Two sources:**
   - **Gemini with Google Search grounding:** searches LinkedIn posts first (`site:linkedin.com/posts`, pages Google has indexed), then Reddit, X, Facebook and Quora.
   - **Freelancer.com's public projects feed.**

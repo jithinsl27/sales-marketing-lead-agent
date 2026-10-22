@@ -217,7 +217,7 @@ img{max-width:100%}
 .xstate{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.85rem;color:var(--muted)}
 .xstate b{color:var(--ink);font-variant-numeric:tabular-nums}
 .xwrap{overflow-x:auto}
-table.xt{width:100%;border-collapse:collapse;min-width:1040px;font-size:.88rem}
+table.xt{width:100%;border-collapse:collapse;min-width:1180px;font-size:.88rem}
 .xt th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:10px 12px;white-space:nowrap}
 .xt td{padding:12px;border-top:1px solid var(--line);vertical-align:top}
 .xt tr.fresh td:first-child{box-shadow:inset 3px 0 0 var(--signal)}
@@ -260,3 +260,10 @@ body .wrap{max-width:1240px}
 .xt td.assign{min-width:150px}
 .xt td.assign select{min-width:140px}
 .i-other{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+
+.xt thead tr.fl th{background:var(--surface);padding:6px 8px;border-top:1px solid var(--line);text-transform:none;letter-spacing:0;font-weight:400;top:37px}
+.xt thead tr.fl input,.xt thead tr.fl select{min-height:32px;padding:4px 8px;font-size:.82rem;width:100%;min-width:0}
+.xt thead tr.fl .on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+#xEmpty .empty{border-top:1px solid var(--line)}
+.val{font-family:var(--f-mono);font-size:.78rem;color:var(--good)}
+#p-extract select.on,#p-extract input.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}

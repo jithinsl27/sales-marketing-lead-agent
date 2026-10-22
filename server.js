@@ -427,16 +427,6 @@ route("PATCH", "/api/extracts/:id", async (req, res, body, { id }) => {
   }
   return { item: await store.updateExtract(id, patch) };
 });
-route("POST", "/api/extracts/clear", async (req, res, body) => {
-  const u = await auth(req, ["admin"]);
-  if (body.confirm !== "CLEAR") throw new HttpError(400, "Confirmation missing.");
-  const s = await store.getExtractState();
-  if (s.runningSince && Date.now() - s.runningSince < 9 * 60_000) throw new HttpError(409, "Stop the running extract first, then clear.");
-  const deleted = await store.clearExtracts();
-  await store.setExtractState({ rotation: 0, totalAdded: 0, lastRun: null, lastSuccessAt: 0, clearedAt: now(), clearedBy: u.email });
-  console.log("extracts cleared", JSON.stringify({ by: u.email, deleted }));
-  return { deleted };
-});
 route("POST", "/api/extracts/:id/to-pipeline", async (req, res, body, { id }) => {
   const u = await auth(req, ["admin", "member"]);
   const x = await store.getExtract(id); if (!x) throw new HttpError(404, "Record not found.");

@@ -52,6 +52,9 @@ function normUrl(u) {
 }
 const isHttp = u => { try { return ["http:", "https:"].includes(new URL(u).protocol); } catch { return false; } };
 const hostOf = u => { try { return new URL(u).host.replace(/^www\./, "").toLowerCase(); } catch { return ""; } };
+// Approximate USD rates for the value filter (Freelancer.com supplies its own rate when available).
+const USD_RATES = { USD: 1, INR: 0.012, AED: 0.272, SAR: 0.267, QAR: 0.275, OMR: 2.6, BHD: 2.65, KWD: 3.25, EUR: 1.08, GBP: 1.27, AUD: 0.66, CAD: 0.73, SGD: 0.74, PKR: 0.0036, BDT: 0.0083, LKR: 0.0033, NPR: 0.0075, ZAR: 0.055, MYR: 0.22, NZD: 0.6 };
+const toUsd = (amount, cur) => { const n = Number(amount), r = USD_RATES[String(cur || "").toUpperCase()]; return n > 0 && r ? Math.round(n * r) : null; };
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,}$/i;
 
 /* ---------- Web (Gemini + Google Search) ---------- */
@@ -72,7 +75,7 @@ Rules:
 - Up to 10 items, newest first. If you find none, return [].
 
 Reply with only a JSON array of objects with these string fields:
-[{"title": "short headline of what they need", "need": "1-2 sentence summary of the requirement, budget or timeline if stated", "personName": "", "company": "", "location": "", "contactEmail": "", "contactPhone": "", "contactUrl": "", "platform": "LinkedIn | Reddit | ...", "sourceUrl": "", "postedDate": "YYYY-MM-DD or ''", "budget": ""}]`;
+[{"title": "short headline of what they need", "need": "1-2 sentence summary of the requirement, budget or timeline if stated", "personName": "", "company": "", "location": "", "country": "country name or ''", "budgetAmount": "the larger budget number stated, digits only, or ''", "budgetCurrency": "ISO code like USD, INR, AED, or ''", "contactEmail": "", "contactPhone": "", "contactUrl": "", "platform": "LinkedIn | Reddit | ...", "sourceUrl": "", "postedDate": "YYYY-MM-DD or ''", "budget": ""}]`;
 }
 
 async function fromWeb(ai, step, market, signal) {
@@ -94,7 +97,8 @@ async function fromWeb(ai, step, market, signal) {
       personName: str(r.personName, 120), company: str(r.company, 160), location: str(r.location, 120),
       contactEmail: EMAIL.test(email) ? email : "", contactPhone: str(r.contactPhone, 40).replace(/[^\d+()\-\s]/g, ""),
       contactUrl: isHttp(r.contactUrl) ? str(r.contactUrl, 400) : "", sourceUrl: url,
-      postedDate: /^\d{4}-\d{2}-\d{2}$/.test(r.postedDate || "") ? r.postedDate : "", budget: str(r.budget, 80)
+      postedDate: /^\d{4}-\d{2}-\d{2}$/.test(r.postedDate || "") ? r.postedDate : "", budget: str(r.budget, 80),
+      country: str(r.country, 60), valueUsd: toUsd(String(r.budgetAmount || "").replace(/[^\d.]/g, ""), r.budgetCurrency)
     });
   }
   return { items, dropped };
@@ -111,9 +115,12 @@ async function fromFreelancer(intent, query, signal) {
   return (j?.result?.projects || []).filter(p => (p.time_submitted || 0) >= cutoff).map(p => {
     const link = p.seo_url ? `https://www.freelancer.com/projects/${p.seo_url}` : `https://www.freelancer.com/projects/${p.id}`;
     const loc = [p.location?.city, p.location?.country?.name].filter(Boolean).join(", ");
+    const top = p.budget ? (p.budget.maximum || p.budget.minimum) : null;
+    const rate = Number(p.currency?.exchange_rate) || USD_RATES[p.currency?.code] || null;
     const budget = p.budget ? `${p.currency?.sign || ""}${p.budget.minimum ?? ""}${p.budget.maximum ? "–" + p.budget.maximum : ""} ${p.currency?.code || ""}`.trim() : "";
     return { id: idFor(link), source: "freelancer", intent, platform: "Freelancer.com", title: str(p.title, 200), need: str(p.preview_description, 600),
-      personName: "", company: "", location: loc, contactEmail: "", contactPhone: "", contactUrl: link, sourceUrl: link,
+      personName: "", company: "", location: loc, country: str(p.location?.country?.name, 60), valueUsd: top && rate ? Math.round(top * rate) : null,
+      contactEmail: "", contactPhone: "", contactUrl: link, sourceUrl: link,
       postedDate: p.time_submitted ? new Date(p.time_submitted * 1000).toISOString().slice(0, 10) : "", budget };
   });
 }
