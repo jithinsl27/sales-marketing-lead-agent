@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Coolgen Lead Desk</title>
-<meta name="description" content="Coolgen's daily sales desk: find, qualify and contact SMB leads.">
+<title>Drops Lead Desk</title>
+<meta name="description" content="Drops's daily sales desk: find, qualify and contact SMB leads.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@600;700&display=swap">
@@ -16,7 +16,7 @@
 
 <div id="authView" class="auth gutter" hidden>
   <div class="auth-card">
-    <div class="brand"><div class="mark" aria-hidden="true">c</div><div class="wordmark">coolgen <span>Lead Desk</span></div></div>
+    <div class="brand"><div class="mark" aria-hidden="true">d</div><div class="wordmark">drops <span>Lead Desk</span></div></div>
     <div><h1 id="authTitle" style="font-size:1.35rem">Sign in</h1><p class="note" id="authSub"></p></div>
     <div id="gsiWrap" hidden><div id="gsiBtn"></div><div class="divider" style="margin-top:14px">or use a password</div></div>
     <form id="loginForm" novalidate>
@@ -46,11 +46,12 @@
 <header class="top">
   <div class="wrap gutter">
     <div class="top-row">
-      <div class="brand"><div class="mark" aria-hidden="true">c</div><div class="wordmark">coolgen <span>Lead Desk</span></div></div>
+      <div class="brand"><div class="mark" aria-hidden="true">d</div><div class="wordmark">drops <span>Lead Desk</span></div></div>
       <div class="me menu" id="me"><button class="btn ghost small" id="meBtn" aria-haspopup="true" aria-expanded="false"><span class="me-name" id="meName"></span><span id="meAvatar"></span></button><div class="menu-pop" id="mePop" hidden><button type="button" data-go="products">My details &amp; password</button><button type="button" id="signOut">Sign out</button></div></div>
     </div>
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button class="tab" role="tab" data-tab="today">Today<span class="n" id="dueBadge" hidden></span></button>
+      <button class="tab" role="tab" data-tab="extract">Extract<span class="n" id="xBadge" hidden></span></button>
       <button class="tab" role="tab" data-tab="find">Find leads</button>
       <button class="tab" role="tab" data-tab="qualify">Qualify</button>
       <button class="tab" role="tab" data-tab="write">Write outreach</button>
@@ -71,6 +72,21 @@
       <div class="row"><button class="btn" data-go="find">Find new leads</button><button class="btn primary" data-add>Add a lead</button></div>
     </div>
     <div id="todayBody"></div>
+  </section>
+
+  <!-- EXTRACT -->
+  <section class="panel" id="p-extract" hidden>
+    <div class="head">
+      <div><h1>Extract</h1><p>Public posts from people who want software built, or who are shopping for HR, CRM or finance software. New finds are added automatically every 30 minutes.</p></div>
+      <div class="row"><button class="btn" id="xExport">Export CSV</button><button class="btn primary" id="xRun" hidden>Run now</button></div>
+    </div>
+    <div class="xstate" id="xState"></div>
+    <div class="filters">
+      <div class="field" style="flex:1 1 220px;max-width:300px"><label class="sr" for="xSearch">Search</label><input type="search" id="xSearch" placeholder="Search need, name, company, location"></div>
+      <span id="xIntents" class="filters"></span>
+      <div class="field" style="flex:0 1 170px"><label class="sr" for="xStatus">Status</label><select id="xStatus"><option value="all">All statuses</option><option value="new">New</option><option value="contacted">Contacted</option><option value="interested">Interested</option><option value="not_relevant">Not relevant</option></select></div>
+    </div>
+    <div class="card pipe"><div class="xwrap" id="xTable"></div></div>
   </section>
 
   <!-- FIND -->

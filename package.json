@@ -1,8 +1,8 @@
 {
-  "name": "coolgen-lead-desk",
+  "name": "drops-lead-desk",
   "version": "1.0.0",
   "private": true,
-  "description": "Coolgen Lead Desk: daily lead generation, qualification and outreach desk for the Coolgen sales team.",
+  "description": "Drops Lead Desk: daily lead generation, qualification and outreach desk for the Drops sales team.",
   "type": "module",
   "main": "server.js",
   "engines": { "node": ">=22" },

@@ -1,8 +1,9 @@
 // Default product details and the prompts sent to Gemini. Product details can be edited in the app (Products tab).
 export const DEFAULT_CFG = {
-  company: { name: "Coolgen Technologies", pitch: "Practical HR and finance software for growing small and mid-size businesses in India and the Middle East." },
+  company: { name: "Drops", pitch: "Practical HR and finance software for growing small and mid-size businesses in India and the Middle East.",
+    offerings: "Drops HR (HR, attendance and AI HR chatbot), Fin360 (billing, purchases, inventory and finance dashboard) and Drops CRM (sales pipeline and customer management). Drops also builds custom software for clients: web apps, mobile apps, websites, SaaS products and AI chatbots/agents, with a team experienced in Node.js, React, Python and Google Cloud." },
   products: [
-    { id: "hr", name: "Coolgen HR", oneLiner: "AI-powered HR: live workforce dashboard, 24/7 employee HR chatbot and facial-recognition attendance.",
+    { id: "hr", name: "Drops HR", oneLiner: "AI-powered HR: live workforce dashboard, 24/7 employee HR chatbot and facial-recognition attendance.",
       idealCustomer: "SMBs with 20–500 employees, shift or field staff, growing headcount, still running HR and attendance on Excel, registers or WhatsApp.",
       description: "Real-time workforce dashboard: headcount, contractor ratio, growth trends; active/inactive, remote/onsite and leave status; department analytics (span of control, team health, overtime patterns); attrition trends with voluntary/involuntary split and risk alerts; AI flight-risk scoring and talent-gap forecasting.\nAI HR chatbot: 24/7 employee self-service for payroll, leave, benefits and policy questions; instant policy lookup; secure, encrypted token-based sessions; conversations continue across sessions.\nFacial-recognition attendance and access control: touchless identity check in under one second; controlled enrolment; one-to-one link to employee records; stops buddy punching, badge fraud and time theft.\nScales from startup to growing company. Early adopters get new features first and hands-on support." },
     { id: "fin", name: "Fin360", oneLiner: "One system for billing, purchases, inventory and a live finance dashboard.",
@@ -92,4 +93,37 @@ Sender signature (use as given; leave out empty parts):
 ${signature || "(no signature set)"}
 
 Rules: Mention only features listed in our product information. Do not invent statistics, customer names, awards, prices, discounts or deadlines. Do not claim we know the prospect or have met unless the notes say so. Refer to one specific detail about the lead when available. Plain text only, no markdown symbols, no placeholders in square brackets except the contact's name if unknown.`;
+}
+
+// Personalised reply to someone found by Extract.
+const EX_INTENT = { build: "wants a freelancer or agency to build something", hr: "is looking for HR software", crm: "is looking for a CRM", finance: "is looking for finance or accounting software" };
+const EX_CHANNEL = {
+  reply: "a public reply or comment under their post: under 70 words, helpful first, no hard sell, invite them to DM or book a call",
+  dm: "a private message (LinkedIn DM / platform message): under 110 words, reference their exact requirement, one clear next step",
+  email: "an email: 'Subject: ...' on the first line, then under 140 words, reference their requirement, propose a 20-minute call",
+  proposal: "a short freelance proposal/bid: under 180 words, restate their requirement in one line, how we'd approach it in 3 bullet-like lines (plain text with dashes), rough timeline if the post gives enough detail, one question to clarify scope"
+};
+export const EX_CHANNELS = Object.keys(EX_CHANNEL);
+export function extractMessagePrompt(cfg, x, opts, signature) {
+  const products = cfg.products.map(p => `- ${p.name}: ${p.oneLiner}`).join("\n");
+  return `You write outreach for ${cfg.company.name}. ${cfg.company.pitch}
+What we offer: ${cfg.company.offerings || ""}
+Products:
+${products}
+
+We found a public post by someone who ${EX_INTENT[x.intent] || "has a software need"}.
+Post headline: ${x.title}
+Their requirement: ${x.need || "(no detail)"}
+${x.personName ? "Author: " + x.personName : ""}${x.company ? "\nCompany: " + x.company : ""}${x.location ? "\nLocation: " + x.location : ""}${x.budget ? "\nBudget stated: " + x.budget : ""}
+Platform: ${x.platform}
+${x.remarks ? "Sales team notes: " + String(x.remarks).slice(0, 1500) : ""}
+
+Write ${EX_CHANNEL[opts.channel] || EX_CHANNEL.dm}.
+${LANG_RULES[opts.lang] || LANG_RULES.English}
+${opts.extra ? "Also include: " + String(opts.extra).slice(0, 1000) : ""}
+Match their need to the most relevant thing we offer and say specifically how it solves what they described. Address them by first name if the author's name is known.
+Sign off with (leave out empty parts):
+${signature || cfg.company.name}
+
+Rules: do not invent facts about them, our clients, case studies, prices, discounts or deadlines; mention only offerings listed above; plain text only, no markdown symbols or square-bracket placeholders.`;
 }

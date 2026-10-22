@@ -25,9 +25,9 @@ export async function notifySignup(u, appUrl) {
   const jobs = [];
   const t = await mailer().catch(e => { console.error("mailer init failed", e.message); return null; });
   if (t) jobs.push(t.sendMail({
-    from: `Coolgen Lead Desk <${SMTP_USER}>`, to: NOTIFY_TO.join(","),
+    from: `Drops Lead Desk <${SMTP_USER}>`, to: NOTIFY_TO.join(","),
     subject: `New sign-up: ${u.name} (${u.email})`,
-    text: `Someone new joined Coolgen Lead Desk.\n\n${lines.join("\n")}\n\n${appUrl ? "Manage the team: " + appUrl + "/#team" : ""}`
+    text: `Someone new joined Drops Lead Desk.\n\n${lines.join("\n")}\n\n${appUrl ? "Manage the team: " + appUrl + "/#team" : ""}`
   }));
   if (WEBHOOK) jobs.push(fetch(WEBHOOK, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ text: `New Lead Desk sign-up\n${lines.join("\n")}` }) }));

@@ -22,6 +22,14 @@ export async function createAI() {
       const r = await call(() => ai.models.generateContent({ model: MODEL, contents: prompt, config: config({ responseMimeType: "application/json", temperature: 0.4 }) }));
       return parseJSON(r.text || "");
     },
+    // Google Search grounding: returns the model's text plus the web sources it actually used.
+    async search(prompt, signal) {
+      const r = await call(() => ai.models.generateContent({ model: MODEL, contents: prompt,
+        config: config({ tools: [{ googleSearch: {} }], temperature: 0.2, abortSignal: signal }) }));
+      const meta = r.candidates?.[0]?.groundingMetadata || {};
+      const sources = (meta.groundingChunks || []).map(c => ({ title: c.web?.title || "", uri: c.web?.uri || "", domain: c.web?.domain || "" }));
+      return { text: r.text || "", sources, queries: meta.webSearchQueries || [] };
+    },
     async stream(prompt, onText, signal) {
       const s = await call(() => ai.models.generateContentStream({ model: MODEL, contents: prompt, config: config({ temperature: 0.8, abortSignal: signal }) }));
       for await (const chunk of s) { if (signal?.aborted) break; const t = chunk.text; if (t) onText(t); }
@@ -45,6 +53,16 @@ function fakeAI() {
       return { summary: "Demo brief from the local fake model.", fit: { hr: 72, fin: 55 }, recommended: "hr",
         why: ["Growing headcount", "Shift-based staff"], pains: ["Manual attendance registers"], contacts: ["Founder / MD — signs off on software"],
         opener: "Saw you're hiring two HR executives in Pune this month.", questions: ["How do you track attendance today?"], unknowns: ["Current HR tool"] };
+    },
+    async search(prompt) {
+      const intent = (prompt.match(/INTENT=(\w+)/) || [])[1] || "crm";
+      return {
+        text: JSON.stringify([{ title: `Looking for a ${intent} solution for our 40-person team`, need: "Small distributor in Pune comparing tools; wants a demo this month.",
+          personName: "Demo Poster", company: "Demo Traders", location: "Pune, India", contactEmail: "", contactPhone: "", contactUrl: "https://www.linkedin.com/in/demo",
+          platform: "LinkedIn", sourceUrl: `https://www.linkedin.com/posts/demo-${intent}-${Math.floor(Date.now() / 1800000)}`, postedDate: new Date().toISOString().slice(0, 10), budget: "" },
+          { title: "Unverifiable item", sourceUrl: "https://made-up.example/post", platform: "Blog" }]),
+        sources: [{ title: "linkedin.com", uri: "https://vertexaisearch.cloud.google.com/grounding-api-redirect/x", domain: "linkedin.com" }], queries: ["demo"]
+      };
     },
     async stream(prompt, onText, signal) {
       for (const w of "Subject: Quick idea for your HR team\n\nHi there, this is a local demo draft.".split(" ")) {

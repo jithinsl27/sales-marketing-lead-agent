@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys Coolgen Lead Desk to Cloud Run. Run it in Google Cloud Shell from this folder:
+# Deploys Drops Lead Desk to Cloud Run. Run it in Google Cloud Shell from this folder:
 #
 #   ADMIN_EMAILS=you@gmail.com ./deploy.sh
 #
@@ -19,7 +19,7 @@ PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)
 if [ -z "$PROJECT_ID" ]; then echo "No project set. Run: gcloud config set project YOUR_PROJECT_ID"; exit 1; fi
 : "${ADMIN_EMAILS:?Set ADMIN_EMAILS to the email of the first admin, e.g.  ADMIN_EMAILS=you@gmail.com ./deploy.sh}"
 REGION="${REGION:-asia-south1}"
-SERVICE="${SERVICE:-coolgen-lead-desk}"
+SERVICE="${SERVICE:-drops-lead-desk}"
 DOMAINS="${ALLOWED_EMAIL_DOMAINS:-}"
 APPROVAL="${REQUIRE_APPROVAL:-false}"
 MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
@@ -34,7 +34,7 @@ PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(project
 
 echo "==> Enabling Google Cloud APIs (first run takes a minute)"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
-  firestore.googleapis.com aiplatform.googleapis.com secretmanager.googleapis.com
+  firestore.googleapis.com aiplatform.googleapis.com secretmanager.googleapis.com cloudscheduler.googleapis.com
 
 echo "==> Firestore database"
 if ! gcloud firestore databases describe --database="(default)" >/dev/null 2>&1; then
@@ -45,7 +45,7 @@ fi
 
 echo "==> Service account for the app"
 if ! gcloud iam service-accounts describe "$SA" >/dev/null 2>&1; then
-  gcloud iam service-accounts create "$SERVICE" --display-name="Coolgen Lead Desk"
+  gcloud iam service-accounts create "$SERVICE" --display-name="Drops Lead Desk"
   sleep 10
 fi
 for ROLE in roles/datastore.user roles/aiplatform.user; do
@@ -65,12 +65,12 @@ make_secret () {
   fi
   grant "$name"
 }
-make_secret cg-session-secret "$(openssl rand -base64 48 | tr -d '\n')"
-make_secret cg-admin-setup-code "$(openssl rand -hex 6)"
-SECRETS="SESSION_SECRET=cg-session-secret:latest,ADMIN_SETUP_CODE=cg-admin-setup-code:latest"
+make_secret drops-session-secret "$(openssl rand -base64 48 | tr -d '\n')"
+make_secret drops-admin-setup-code "$(openssl rand -hex 6)"
+SECRETS="SESSION_SECRET=drops-session-secret:latest,ADMIN_SETUP_CODE=drops-admin-setup-code:latest"
 
 echo "==> Sign-up notifications by email"
-if gcloud secrets describe cg-smtp-pass >/dev/null 2>&1 && [ "${RESET_SMTP:-}" != "1" ]; then
+if gcloud secrets describe drops-smtp-pass >/dev/null 2>&1 && [ "${RESET_SMTP:-}" != "1" ]; then
   echo "    using the saved Gmail App Password for $SMTP_USER (run with RESET_SMTP=1 to change it)"
 else
   echo "    Emails are sent from $SMTP_USER to $NOTIFY_EMAILS."
@@ -78,17 +78,17 @@ else
   read -r -s -p "    Paste the 16-letter App Password, or press Enter to skip: " SMTP_PASS_IN; echo
   SMTP_PASS_IN="${SMTP_PASS_IN// /}"
   if [ -n "$SMTP_PASS_IN" ]; then
-    if gcloud secrets describe cg-smtp-pass >/dev/null 2>&1; then
-      printf '%s' "$SMTP_PASS_IN" | gcloud secrets versions add cg-smtp-pass --data-file=- >/dev/null
+    if gcloud secrets describe drops-smtp-pass >/dev/null 2>&1; then
+      printf '%s' "$SMTP_PASS_IN" | gcloud secrets versions add drops-smtp-pass --data-file=- >/dev/null
     else
-      printf '%s' "$SMTP_PASS_IN" | gcloud secrets create cg-smtp-pass --data-file=- --replication-policy=automatic >/dev/null
+      printf '%s' "$SMTP_PASS_IN" | gcloud secrets create drops-smtp-pass --data-file=- --replication-policy=automatic >/dev/null
     fi
     echo "    saved"
   else
     echo "    skipped: new sign-ups will still show in the app's Team tab"
   fi
 fi
-if gcloud secrets describe cg-smtp-pass >/dev/null 2>&1; then grant cg-smtp-pass; SECRETS="$SECRETS,SMTP_PASS=cg-smtp-pass:latest"; fi
+if gcloud secrets describe drops-smtp-pass >/dev/null 2>&1; then grant drops-smtp-pass; SECRETS="$SECRETS,SMTP_PASS=drops-smtp-pass:latest"; fi
 
 echo "==> Building and deploying to Cloud Run ($REGION)"
 gcloud run deploy "$SERVICE" \
@@ -98,21 +98,41 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 3 \
   --cpu 1 --memory 512Mi --concurrency 80 --timeout 300 --cpu-throttling \
-  --set-env-vars "^;^NODE_ENV=production;GOOGLE_CLOUD_PROJECT=${PROJECT_ID};ALLOWED_EMAIL_DOMAINS=${DOMAINS};REQUIRE_APPROVAL=${APPROVAL};ADMIN_EMAILS=${ADMIN_EMAILS};NOTIFY_EMAILS=${NOTIFY_EMAILS};SMTP_USER=${SMTP_USER};NOTIFY_WEBHOOK_URL=${WEBHOOK};GEMINI_MODEL=${MODEL};GEMINI_LOCATION=global;GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
+  --set-env-vars "^;^NODE_ENV=production;GOOGLE_CLOUD_PROJECT=${PROJECT_ID};ALLOWED_EMAIL_DOMAINS=${DOMAINS};REQUIRE_APPROVAL=${APPROVAL};ADMIN_EMAILS=${ADMIN_EMAILS};NOTIFY_EMAILS=${NOTIFY_EMAILS};SMTP_USER=${SMTP_USER};NOTIFY_WEBHOOK_URL=${WEBHOOK};EXTRACT_INVOKER=${SA};EXTRACT_AUDIENCE=drops-extract;EXTRACT_WEB_SEARCHES_PER_RUN=${EXTRACT_WEB_SEARCHES_PER_RUN:-1};GEMINI_MODEL=${MODEL};GEMINI_LOCATION=global;GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
   --set-secrets "$SECRETS" \
   --quiet
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
-CODE="$(gcloud secrets versions access latest --secret=cg-admin-setup-code)"
+
+echo "==> Extract: run every 30 minutes (Cloud Scheduler)"
+# Let Cloud Scheduler sign requests as the app's service account; the app checks that signature.
+gcloud iam service-accounts add-iam-policy-binding "$SA" \
+  --member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com" \
+  --role=roles/iam.serviceAccountTokenCreator -q >/dev/null 2>&1 || true
+JOB="drops-extract"
+if gcloud scheduler jobs describe "$JOB" --location "$REGION" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http "$JOB" --location "$REGION" --schedule="*/30 * * * *" --time-zone="Asia/Kolkata" \
+    --uri="${URL}/api/extract/run" --http-method=POST --update-headers="x-cg=1,Content-Type=application/json" --message-body="{}" \
+    --oidc-service-account-email="$SA" --oidc-token-audience="drops-extract" --attempt-deadline=300s --quiet >/dev/null
+  echo "    updated"
+else
+  gcloud scheduler jobs create http "$JOB" --location "$REGION" --schedule="*/30 * * * *" --time-zone="Asia/Kolkata" \
+    --uri="${URL}/api/extract/run" --http-method=POST --headers="x-cg=1,Content-Type=application/json" --message-body="{}" \
+    --oidc-service-account-email="$SA" --oidc-token-audience="drops-extract" --attempt-deadline=300s --quiet >/dev/null
+  echo "    created"
+fi
+gcloud scheduler jobs run "$JOB" --location "$REGION" --quiet >/dev/null 2>&1 && echo "    first extract run started" || true
+CODE="$(gcloud secrets versions access latest --secret=drops-admin-setup-code)"
 cat <<EOF
 
 ========================================================
- Coolgen Lead Desk is live:  $URL
+ Drops Lead Desk is live:  $URL
 
  First admin: open the link, choose "Create an account",
  sign up with $ADMIN_EMAILS, open "I'm the first admin"
  and enter this setup code:  $CODE
 
+ Extract runs every 30 minutes; the first run has started.
  Share the link with your team. Each new sign-up is
  emailed to $NOTIFY_EMAILS (if you saved an App Password)
  and listed in the app's Team tab.

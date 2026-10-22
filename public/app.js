@@ -1,9 +1,9 @@
 "use strict";
 /* ---------- static data ---------- */
 const DEFAULT_CFG = {
-  company: { name: "Coolgen Technologies", pitch: "Practical HR and finance software for growing small and mid-size businesses in India and the Middle East." },
+  company: { name: "Drops", pitch: "Practical HR and finance software for growing small and mid-size businesses in India and the Middle East." },
   products: [
-    { id: "hr", name: "Coolgen HR", oneLiner: "AI-powered HR: live workforce dashboard, 24/7 employee HR chatbot and facial-recognition attendance.",
+    { id: "hr", name: "Drops HR", oneLiner: "AI-powered HR: live workforce dashboard, 24/7 employee HR chatbot and facial-recognition attendance.",
       idealCustomer: "SMBs with 20–500 employees, shift or field staff, growing headcount, still running HR and attendance on Excel, registers or WhatsApp.",
       description: "Real-time workforce dashboard: headcount, contractor ratio, growth trends; active/inactive, remote/onsite and leave status; department analytics (span of control, team health, overtime patterns); attrition trends with voluntary/involuntary split and risk alerts; AI flight-risk scoring and talent-gap forecasting.\nAI HR chatbot: 24/7 employee self-service for payroll, leave, benefits and policy questions; instant policy lookup; secure, encrypted token-based sessions; conversations continue across sessions.\nFacial-recognition attendance and access control: touchless identity check in under one second; controlled enrolment; one-to-one link to employee records; stops buddy punching, badge fraud and time theft.\nScales from startup to growing company. Early adopters get new features first and hands-on support." },
     { id: "fin", name: "Fin360", oneLiner: "One system for billing, purchases, inventory and a live finance dashboard.",
@@ -73,7 +73,7 @@ async function api(method, url, body){
 /* ---------- state ---------- */
 const S = {
   signedIn: false, me: null, pub: null, leadsMap: new Map(), leads: [], lastSync: 0, cfg: structuredClone(DEFAULT_CFG), my: {}, names: {}, team: [],
-  pf: { stage: "open", mine: ls.get("cg.mine", false), q: "" }, find: { product: "hr", city: "Bengaluru", ind: "Manufacturing" },
+  pf: { stage: "open", mine: ls.get("drops.mine", false), q: "" }, find: { product: "hr", city: "Bengaluru", ind: "Manufacturing" },
   write: { channel: "email" }, tab: "today", prodDirty: false, dbState: "ready"
 };
 const canWrite = () => ["admin", "member"].includes(S.me?.role);
@@ -81,15 +81,17 @@ const isAdmin = () => S.me?.role === "admin";
 Object.defineProperty(S, "uid", { get: () => S.me?.email || null });
 
 /* ---------- tabs ---------- */
-const TABS = ["today","find","qualify","write","pipeline","products","team"];
+const TABS = ["today","extract","find","qualify","write","pipeline","products","team"];
 function go(tab){
   if (!TABS.includes(tab) || (tab === "team" && !isAdmin())) tab = "today";
-  S.tab = tab;
+  const prevTab = S.tab; S.tab = tab;
   TABS.forEach(t => { $("#p-" + t).hidden = t !== tab; });
   $$(".tab").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
   try { history.replaceState(null, "", "#" + tab); } catch {}
   $("#mePop").hidden = true;
+  if (prevTab === "extract" && tab !== "extract") markExtractSeen();
   if (tab === "team") loadTeamAdmin();
+  if (tab === "extract") { renderExtract(); paintXBadge(); }
   window.scrollTo(0, 0);
 }
 $$(".tab").forEach(b => b.addEventListener("click", () => go(b.dataset.tab)));
@@ -179,7 +181,7 @@ function buildFind(){
   $("#fCity").innerHTML = Object.entries(CITIES).map(([c, list]) =>
     `<optgroup label="${esc(c === "India" ? "India · priority" : c)}">${list.map(x => `<option>${esc(x)}</option>`).join("")}</optgroup>`).join("");
   $("#fInd").innerHTML = INDUSTRIES.map(x => `<option>${esc(x)}</option>`).join("");
-  const saved = ls.get("cg.find", null); if (saved) Object.assign(S.find, saved);
+  const saved = ls.get("drops.find", null); if (saved) Object.assign(S.find, saved);
   $("#fCity").value = S.find.city; $("#fInd").value = S.find.ind;
   $("#fProduct").addEventListener("click", e => { const b = e.target.closest("[data-p]"); if (b) { S.find.product = b.dataset.p; renderFind(); } });
   $("#fCity").addEventListener("change", e => { S.find.city = e.target.value; renderFind(); });
@@ -200,7 +202,7 @@ function hookFor(country, product){
   return (H[country] || gen)[product] || gen[product];
 }
 function renderFind(){
-  ls.set("cg.find", S.find);
+  ls.set("drops.find", S.find);
   $$("#fProduct [data-p]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.p === S.find.product)));
   const { product, city, ind } = S.find; const country = countryOf(city); const india = country === "India";
   const enc = encodeURIComponent;
@@ -332,7 +334,7 @@ document.addEventListener("click", async e => {
 /* ---------- PIPELINE ---------- */
 function buildPipeline(){
   $("#pSearch").addEventListener("input", e => { S.pf.q = e.target.value.trim().toLowerCase(); renderPipeline(); });
-  $("#pMine").addEventListener("click", () => { S.pf.mine = !S.pf.mine; ls.set("cg.mine", S.pf.mine); renderPipeline(); });
+  $("#pMine").addEventListener("click", () => { S.pf.mine = !S.pf.mine; ls.set("drops.mine", S.pf.mine); renderPipeline(); });
   $("#pStages").addEventListener("click", e => { const b = e.target.closest("[data-st]"); if (b) { S.pf.stage = b.dataset.st; renderPipeline(); } });
   $("#pipeList").addEventListener("change", async e => {
     const s = e.target.closest("select[data-stage]"); if (!s) return;
@@ -379,7 +381,7 @@ function exportCsv(){
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const csv = "﻿" + [cols.join(","), ...S.leads.map(l => cols.map(c => q(l[c])).join(","))].join("\r\n");
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = `coolgen-pipeline-${dstr()}.csv`; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  a.download = `drops-pipeline-${dstr()}.csv`; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 /* ---------- QUALIFY ---------- */
@@ -537,6 +539,7 @@ function renderProducts(){
       <h2>Company</h2>
       <div class="field"><label for="pp-co">Company name</label><input type="text" id="pp-co" data-pp="co.name" value="${esc(S.cfg.company.name)}"></div>
       <div class="field"><label for="pp-pitch">Company pitch</label><textarea id="pp-pitch" rows="3" data-pp="co.pitch">${esc(S.cfg.company.pitch)}</textarea></div>
+      <div class="field"><label for="pp-off">What we offer (used for Extract messages)</label><textarea id="pp-off" rows="5" data-pp="co.offerings">${esc(S.cfg.company.offerings || "")}</textarea></div>
       <div class="row"><button class="btn primary" id="ppSave">Save product details</button></div></div>` : "");
   $$("#prodBody [data-pp]").forEach(el => el.addEventListener("input", () => { S.prodDirty = true; }));
   const sv = $("#ppSave");
@@ -641,13 +644,162 @@ function buildFindProductButtons(){
   $("#fProduct").innerHTML = `<button type="button" data-p="hr">${esc(prodName("hr"))}</button><button type="button" data-p="fin">${esc(prodName("fin"))}</button>`;
 }
 
+/* ---------- EXTRACT ---------- */
+const X_STATUS = [["new","New"],["contacted","Contacted"],["interested","Interested"],["not_relevant","Not relevant"]];
+const X_CH = [["dm","Direct message"],["reply","Reply to post"],["email","Email"],["proposal","Proposal / bid"]];
+Object.assign(S, { xMap: new Map(), xLast: 0, xIntents: { build: "Freelance build", hr: "Needs HR software", crm: "Needs a CRM", finance: "Needs finance software" },
+  xState: null, xf: { intent: "all", status: "all", q: "" }, xSeen: ls.get("drops.xseen", 0), xPending: false });
+const fmtWhen = ms => { const d = new Date(ms); return { day: d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }), time: d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) }; };
+const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : "";
+function markExtractSeen(){ S.xSeen = Date.now(); ls.set("drops.xseen", S.xSeen); paintXBadge(); }
+function paintXBadge(){ if (S.tab === "extract") { $("#xBadge").hidden = true; return; } const n = [...S.xMap.values()].filter(x => x.addedAt > S.xSeen).length; const b = $("#xBadge"); b.hidden = !n || S.tab === "extract"; b.textContent = n; }
+async function syncExtracts(full){
+  try {
+    const r = await api("GET", "/api/extracts" + (full || !S.xLast ? "" : "?since=" + (S.xLast - 15000)));
+    if (full || !S.xLast) S.xMap = new Map();
+    for (const x of r.items) S.xMap.set(x.id, x);
+    S.xLast = r.serverTime; S.xState = r.state; if (r.intents) S.xIntents = r.intents;
+    paintXBadge(); renderExtract();
+  } catch {}
+}
+function buildExtract(){
+  $("#xSearch").addEventListener("input", e => { S.xf.q = e.target.value.trim().toLowerCase(); renderExtract(true); });
+  $("#xStatus").addEventListener("change", e => { S.xf.status = e.target.value; renderExtract(true); });
+  $("#xIntents").addEventListener("click", e => { const b = e.target.closest("[data-xi]"); if (b) { S.xf.intent = b.dataset.xi; renderExtract(true); } });
+  $("#xExport").addEventListener("click", exportExtractCsv);
+  $("#xRun").addEventListener("click", async () => {
+    const b = $("#xRun"); b.disabled = true; b.textContent = "Running… (up to 4 min)";
+    try { const r = await api("POST", "/api/extract/run"); toast(r.skipped ? r.reason : `Done: ${r.added} new record${r.added === 1 ? "" : "s"} added`); await syncExtracts(false); }
+    catch (err) { toast(errMsg(err)); } finally { b.disabled = false; b.textContent = "Run now"; }
+  });
+  const tbl = $("#xTable");
+  tbl.addEventListener("focusout", async e => {
+    const ta = e.target.closest("textarea[data-xr]"); if (!ta) return;
+    const x = S.xMap.get(ta.dataset.xr);
+    if (x && ta.value !== (x.remarks || "")) {
+      const note = ta.parentElement.querySelector(".saved"); note.textContent = "Saving…";
+      try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(x.id), { remarks: ta.value }); S.xMap.set(x.id, r.item); note.textContent = "Saved"; }
+      catch (err) { note.textContent = ""; toast(errMsg(err)); }
+    }
+    if (S.xPending) setTimeout(() => { if (!tbl.contains(document.activeElement) || document.activeElement.tagName !== "TEXTAREA") renderExtract(); }, 50);
+  });
+  tbl.addEventListener("change", async e => {
+    const s = e.target.closest("select[data-xs]"); if (!s) return;
+    try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(s.dataset.xs), { status: s.value }); S.xMap.set(r.item.id, r.item); toast("Status updated"); }
+    catch (err) { toast(errMsg(err)); renderExtract(true); }
+  });
+  tbl.addEventListener("click", async e => {
+    const m = e.target.closest("[data-xmsg]"); if (m) openExtractMessage(m.dataset.xmsg);
+    const p = e.target.closest("[data-xlead]");
+    if (p) {
+      p.disabled = true;
+      try { const r = await api("POST", "/api/extracts/" + encodeURIComponent(p.dataset.xlead) + "/to-pipeline"); S.xMap.set(r.item.id, r.item); mergeLeads([r.lead]); toast("Added to pipeline"); renderExtract(true); }
+      catch (err) { toast(errMsg(err)); p.disabled = false; }
+    }
+  });
+}
+function renderExtract(force){
+  if (!$("#xTable")) return;
+  const st = S.xState;
+  $("#xState").innerHTML = st ? [
+    `<span>Total found: <b>${S.xMap.size}</b></span>`,
+    st.running ? `<span><b>Running now…</b></span>` : st.lastRun?.finishedAt ? `<span>Last run: <b>${esc(ago(st.lastRun.finishedAt))}</b> · added <b>${st.lastRun.added || 0}</b></span>` : `<span>No runs yet. The first scheduled run starts within 30 minutes of deploying.</span>`,
+    st.lastRun?.errors?.length ? `<span class="due-over" title="${esc(st.lastRun.errors.join(" | "))}">Last run had ${st.lastRun.errors.length} source error${st.lastRun.errors.length === 1 ? "" : "s"}</span>` : ""
+  ].join("") : "";
+  const all = [...S.xMap.values()];
+  const cnt = k => k === "all" ? all.length : all.filter(x => x.intent === k).length;
+  $("#xIntents").innerHTML = [["all", "All"], ...Object.entries(S.xIntents)].map(([k, n]) => `<button class="fchip" data-xi="${esc(k)}" aria-pressed="${S.xf.intent === k}">${esc(n)}<span class="mono">${cnt(k)}</span></button>`).join("");
+  if (S.tab !== "extract" && !force) return;
+  const tbl = $("#xTable");
+  if (!force && tbl.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") { S.xPending = true; return; }
+  S.xPending = false;
+  const q = S.xf.q;
+  const rows = all.filter(x => (S.xf.intent === "all" || x.intent === S.xf.intent) && (S.xf.status === "all" || (x.status || "new") === S.xf.status))
+    .filter(x => !q || [x.title, x.need, x.personName, x.company, x.location, x.platform, x.remarks].some(v => (v || "").toLowerCase().includes(q)))
+    .sort((a, b) => b.addedAt - a.addedAt);
+  if (!all.length) { tbl.innerHTML = `<div class="empty"><h3>No records yet</h3><p>Extract searches public posts every 30 minutes and adds new finds here with the date and time.${isAdmin() ? " Admins can press Run now to start one immediately." : ""}</p></div>`; return; }
+  if (!rows.length) { tbl.innerHTML = `<div class="empty"><h3>No matches</h3><p>Change the filters or clear the search.</p></div>`; return; }
+  const ro = !canWrite();
+  tbl.innerHTML = `<table class="xt"><thead><tr><th>Added</th><th>Requirement</th><th>Who &amp; where</th><th>Contact (as posted)</th><th>Source</th><th>Remarks</th><th>Status</th></tr></thead><tbody>` +
+    rows.map(x => { const w = fmtWhen(x.addedAt); const src = safeUrl(x.sourceUrl), cu = safeUrl(x.contactUrl);
+      return `<tr class="${x.addedAt > S.xSeen ? "fresh" : ""}">
+      <td class="when"><b>${esc(w.day)}</b>${esc(w.time)}</td>
+      <td class="need"><span class="chip i-${esc(x.intent)}">${esc(S.xIntents[x.intent] || x.intent)}</span><div class="t" dir="auto" style="margin-top:6px">${esc(x.title)}</div>${x.need ? `<p dir="auto">${esc(x.need)}</p>` : ""}${x.budget ? `<p>Budget: ${esc(x.budget)}</p>` : ""}</td>
+      <td>${x.personName ? `<div style="font-weight:600">${esc(x.personName)}</div>` : ""}${x.company ? `<div>${esc(x.company)}</div>` : ""}${!x.personName && !x.company ? `<span class="note">Name not stated</span>` : ""}${x.location ? `<div class="note" style="margin-top:4px">${esc(x.location)}</div>` : ""}</td>
+      <td><div class="contact">${x.contactEmail ? `<span class="mono" style="font-size:.8rem">${esc(x.contactEmail)}</span>` : ""}${x.contactPhone ? `<span class="mono" style="font-size:.8rem">${esc(x.contactPhone)}</span>` : ""}${cu ? `<a href="${esc(cu)}" target="_blank" rel="noopener noreferrer">Profile / link ↗</a>` : ""}${!x.contactEmail && !x.contactPhone && !cu ? `<span class="note">Reply on the post</span>` : ""}</div></td>
+      <td class="src">${src ? `<a href="${esc(src)}" target="_blank" rel="noopener noreferrer">${esc(x.platform || "Open")} ↗</a>` : esc(x.platform)}${x.postedDate ? `<div class="note">Posted ${esc(fmtDate(x.postedDate))}</div>` : ""}</td>
+      <td><label class="sr" for="xr-${esc(x.id)}">Remarks</label><textarea id="xr-${esc(x.id)}" data-xr="${esc(x.id)}" placeholder="Add a note for the team" ${ro ? "readonly" : ""}>${esc(x.remarks || "")}</textarea><div class="saved">${x.remarksBy ? esc("by " + ((S.names[x.remarksBy]?.name) || x.remarksBy.split("@")[0])) : ""}</div></td>
+      <td><div class="acts" style="flex-direction:column;align-items:stretch"><label class="sr" for="xs-${esc(x.id)}">Status</label><select id="xs-${esc(x.id)}" data-xs="${esc(x.id)}" ${ro ? "disabled" : ""}>${opt(X_STATUS, x.status || "new")}</select>${ro ? "" : `<button class="btn small primary" data-xmsg="${esc(x.id)}">Write message</button>`}${x.leadId ? `<button class="btn small ghost" data-edit="${esc(x.leadId)}">In pipeline</button>` : ro ? "" : `<button class="btn small" data-xlead="${esc(x.id)}">Add to pipeline</button>`}</div></td>
+    </tr>`; }).join("") + `</tbody></table>`;
+}
+function openExtractMessage(id){
+  const x = S.xMap.get(id); if (!x) return;
+  let ch = x.source === "freelancer" ? "proposal" : "dm", ctl = null;
+  $("#modalRoot").innerHTML = `
+  <div class="scrim" id="scrim"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="xmT">
+    <div class="mhead"><h2 id="xmT">Personalised message</h2><button type="button" class="btn ghost small" data-close>Close</button></div>
+    <div class="opener" dir="auto"><b id="xmTitle"></b><div class="note" id="xmMeta" style="margin-top:4px"></div></div>
+    <div class="field"><span class="lbl" id="xmCl">Type</span><div class="seg" role="group" aria-labelledby="xmCl" id="xmCh">${X_CH.map(([k, n]) => `<button type="button" data-c="${k}">${esc(n)}</button>`).join("")}</div></div>
+    <div class="row">
+      <div class="field"><label for="xmLang">Language</label><select id="xmLang"><option>English</option><option>Hindi</option><option>Hinglish</option><option>Arabic</option><option>Tamil</option><option>Telugu</option><option>Malayalam</option></select></div>
+      <div class="field" style="flex:2 1 260px"><label for="xmExtra">Anything to include</label><input type="text" id="xmExtra" placeholder="e.g. We built a similar CRM for a Dubai distributor"></div>
+    </div>
+    <div class="row"><button class="btn primary" id="xmGo">Write message</button><button class="btn ghost" id="xmStop" hidden>Stop</button></div>
+    <div class="out card" id="xmOut" dir="auto" style="min-height:140px"></div>
+    <div class="mfoot"><span class="note">Read and edit before sending. Contact only people who asked publicly.</span><div class="row" style="gap:8px"><button class="btn small" id="xmCopy" disabled>Copy</button><button class="btn small primary" id="xmDone" disabled>Mark as contacted</button></div></div>
+  </div></div>`;
+  $("#xmTitle").textContent = x.title;
+  $("#xmMeta").textContent = [x.personName, x.company, x.location, x.platform].filter(Boolean).join(" · ");
+  const paintCh = () => $$("#xmCh [data-c]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c === ch)));
+  paintCh();
+  $("#xmCh").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) { ch = b.dataset.c; paintCh(); } });
+  const close = () => { ctl?.abort(); $("#modalRoot").innerHTML = ""; document.removeEventListener("keydown", onKey); };
+  const onKey = e => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  $("#scrim").addEventListener("click", e => { if (e.target.id === "scrim" || e.target.closest("[data-close]")) close(); });
+  $("#xmOut").innerHTML = `<span class="note">Choose a type and press Write message.</span>`;
+  $("#xmStop").onclick = () => ctl?.abort();
+  $("#xmCopy").onclick = () => copyText($("#xmOut").textContent, $("#xmOut"));
+  $("#xmDone").onclick = async () => {
+    try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(id), { status: "contacted" }); S.xMap.set(id, r.item); toast("Marked as contacted"); close(); renderExtract(true); }
+    catch (err) { toast(errMsg(err)); }
+  };
+  $("#xmGo").onclick = async () => {
+    ctl = new AbortController(); let text = "";
+    $("#xmGo").disabled = true; $("#xmStop").hidden = false; $("#xmCopy").disabled = true;
+    $("#xmOut").innerHTML = `<div class="thinking"><span class="spin"></span>Writing a message for this requirement…</div>`;
+    try {
+      const r = await fetch("/api/extracts/" + encodeURIComponent(id) + "/message", { method: "POST", signal: ctl.signal, credentials: "same-origin",
+        headers: { "content-type": "application/json", "x-cg": "1" }, body: JSON.stringify({ channel: ch, lang: $("#xmLang").value, extra: $("#xmExtra").value.trim() }) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw { message: j.error }; }
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      for (;;) { const { done, value } = await reader.read(); if (done) break; text += dec.decode(value, { stream: true }); $("#xmOut").textContent = text; }
+      $("#xmCopy").disabled = !text.trim(); $("#xmDone").disabled = false;
+    } catch (e) {
+      if (e?.name === "AbortError") { if (!text) $("#xmOut").innerHTML = ""; }
+      else if (!text) $("#xmOut").innerHTML = `<div class="banner bad">${esc(errMsg(e))}</div>`;
+      $("#xmCopy").disabled = !text.trim();
+    } finally { const g = $("#xmGo"); if (g) { g.disabled = false; g.textContent = "Try another"; $("#xmStop").hidden = true; } }
+  };
+}
+function exportExtractCsv(){
+  const cols = [["addedAt","Added"],["intent","Type"],["title","Requirement"],["need","Details"],["budget","Budget"],["personName","Person"],["company","Company"],["location","Location"],
+    ["contactEmail","Email"],["contactPhone","Phone"],["contactUrl","Contact link"],["platform","Platform"],["sourceUrl","Source URL"],["postedDate","Posted"],["status","Status"],["remarks","Remarks"]];
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [...S.xMap.values()].sort((a, b) => b.addedAt - a.addedAt).map(x => cols.map(([k]) => q(k === "addedAt" ? new Date(x.addedAt).toLocaleString() : k === "intent" ? (S.xIntents[x.intent] || x.intent) : x[k])).join(","));
+  const csv = "﻿" + [cols.map(c => c[1]).join(","), ...rows].join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `drops-extract-${dstr()}.csv`; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
 /* ---------- sign in ---------- */
 function showAuth(mode, note){
   $("#boot").hidden = true; $("#appView").hidden = true; $("#authView").hidden = false;
   $("#loginForm").hidden = mode !== "login"; $("#signupForm").hidden = mode !== "signup"; $("#pendingView").hidden = mode !== "pending";
   $("#authTitle").textContent = mode === "signup" ? "Request access" : mode === "pending" ? "Almost there" : "Sign in";
   const doms = (S.pub?.domains || []).map(d => "@" + d).join(", ");
-  $("#authSub").textContent = note || (mode === "pending" ? "" : `${S.pub?.company || "Coolgen"} sales team.${doms ? ` Use your ${doms} address.` : mode === "signup" ? " Create your account with your work or personal email." : ""}`);
+  $("#authSub").textContent = note || (mode === "pending" ? "" : `${S.pub?.company || "Drops"} sales team.${doms ? ` Use your ${doms} address.` : mode === "signup" ? " Create your account with your work or personal email." : ""}`);
   $("#suBtn").textContent = S.pub?.approval ? "Request access" : "Create account";
   $("#authTitle").textContent = mode === "signup" ? (S.pub?.approval ? "Request access" : "Create your account") : $("#authTitle").textContent;
   $("#gsiWrap").hidden = mode === "pending" || !S.pub?.googleClientId;
@@ -695,17 +847,18 @@ async function start(){
   $("#authView").hidden = true; $("#boot").hidden = true; $("#appView").hidden = false;
   $("#meName").textContent = me.name || me.email; $("#meAvatar").innerHTML = avatarHTML(me.email, me.name, me.picture);
   $("#teamTab").hidden = !isAdmin();
-  if (!built) { built = true; buildFind(); buildQualify(); buildWrite(); buildPipeline(); buildMe(); buildTeamAdmin(); }
+  if (!built) { built = true; buildExtract(); buildFind(); buildQualify(); buildWrite(); buildPipeline(); buildMe(); buildTeamAdmin(); }
   if (!canWrite()) { const g = $("#globalBanner"); g.hidden = false; g.className = "banner"; g.style.marginBottom = "16px"; g.textContent = "You have view-only access. Ask an admin to make you a Member so you can add and update leads."; }
   paintMe();
   go((location.hash || "").slice(1) || (me.mustChangePassword ? "products" : "today"));
-  const [cfg] = await Promise.all([api("GET", "/api/config").catch(() => null), loadTeam(), syncLeads(true)]);
+  $("#xRun").hidden = !isAdmin();
+  const [cfg] = await Promise.all([api("GET", "/api/config").catch(() => null), loadTeam(), syncLeads(true), syncExtracts(true)]);
   if (cfg) { S.cfg = cfg.config; onCfg(); }
   if (isAdmin()) api("GET", "/api/admin/users").then(r => { const n = r.users.filter(u => u.status === "pending").length; $("#pendingBadge").hidden = !n; $("#pendingBadge").textContent = n; }).catch(() => {});
   clearInterval(S.poll);
-  S.poll = setInterval(() => { if (document.visibilityState === "visible" && S.signedIn) syncLeads(false); }, 60000);
+  S.poll = setInterval(() => { if (document.visibilityState === "visible" && S.signedIn) { syncLeads(false); syncExtracts(false); } }, 60000);
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.signedIn) syncLeads(false); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.signedIn) { syncLeads(false); syncExtracts(false); } });
 (async function boot(){
   try { S.pub = await (await fetch("/api/public-config")).json(); } catch { S.pub = { domains: ["gmail.com"] }; }
   initGoogle();

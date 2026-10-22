@@ -1,4 +1,4 @@
-// Coolgen Lead Desk server: one small Node process for Cloud Run (no framework).
+// Drops Lead Desk server: one small Node process for Cloud Run (no framework).
 import http from "node:http";
 import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -6,7 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createStore } from "./store.js";
 import { createAI } from "./ai.js";
-import { DEFAULT_CFG, STAGES, CHANNELS, LANGS, qualifyPrompt, writePrompt } from "./prompts.js";
+import { DEFAULT_CFG, STAGES, CHANNELS, LANGS, EX_CHANNELS, qualifyPrompt, writePrompt, extractMessagePrompt } from "./prompts.js";
+import { runExtract, INTENTS } from "./extract.js";
 import { notifySignup, notifyChannels } from "./notify.js";
 
 const PORT = Number(process.env.PORT || 8080);
@@ -24,8 +25,12 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const store = await createStore();
 const ai = await createAI();
+// Cloud Scheduler calls /api/extract/run with a Google-signed OIDC token for this service account.
+const EXTRACT_INVOKER = (process.env.EXTRACT_INVOKER || "").toLowerCase();
+const EXTRACT_AUDIENCE = process.env.EXTRACT_AUDIENCE || "drops-extract";
+let oidcVerifier = null;
 let googleClient = null;
-if (GOOGLE_CLIENT_ID) { const { OAuth2Client } = await import("google-auth-library"); googleClient = new OAuth2Client(GOOGLE_CLIENT_ID); }
+{ const { OAuth2Client } = await import("google-auth-library"); oidcVerifier = new OAuth2Client(); if (GOOGLE_CLIENT_ID) googleClient = new OAuth2Client(GOOGLE_CLIENT_ID); }
 
 /* ---------- static files (cached in memory) ---------- */
 const STATIC = {};
@@ -70,11 +75,11 @@ async function checkPassword(pw, user) {
 const hmac = s => crypto.createHmac("sha256", SECRET).update(s).digest("base64url");
 function makeCookie(user) {
   const b = Buffer.from(JSON.stringify({ e: user.email, v: user.sessionVersion || 1, exp: now() + SESSION_DAYS * 864e5 })).toString("base64url");
-  return `cg_sess=${b}.${hmac(b)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${PROD ? "; Secure" : ""}`;
+  return `drops_sess=${b}.${hmac(b)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}${PROD ? "; Secure" : ""}`;
 }
-const clearCookie = `cg_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${PROD ? "; Secure" : ""}`;
+const clearCookie = `drops_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${PROD ? "; Secure" : ""}`;
 function readSession(req) {
-  const m = (req.headers.cookie || "").match(/(?:^|;\s*)cg_sess=([^;]+)/); if (!m) return null;
+  const m = (req.headers.cookie || "").match(/(?:^|;\s*)drops_sess=([^;]+)/); if (!m) return null;
   const [b, sig] = m[1].split("."); if (!b || !sig) return null;
   const want = hmac(b); if (want.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(sig))) return null;
   try { const p = JSON.parse(Buffer.from(b, "base64url").toString()); return p.exp > now() ? p : null; } catch { return null; }
@@ -263,7 +268,7 @@ route("GET", "/api/config", async req => { await auth(req); return { config: awa
 route("PUT", "/api/config", async (req, res, body) => {
   await auth(req, ["admin"]);
   const c = body.config || {};
-  const cfg = { company: { name: str(c.company?.name, 120) || DEFAULT_CFG.company.name, pitch: str(c.company?.pitch, 600) },
+  const cfg = { company: { name: str(c.company?.name, 120) || DEFAULT_CFG.company.name, pitch: str(c.company?.pitch, 600), offerings: str(c.company?.offerings, 2000) },
     products: (Array.isArray(c.products) ? c.products : []).slice(0, 2).map((p, i) => ({ id: DEFAULT_CFG.products[i].id, name: str(p.name, 60) || DEFAULT_CFG.products[i].name,
       oneLiner: str(p.oneLiner, 300), idealCustomer: str(p.idealCustomer, 600), description: str(p.description, 6000) })) };
   if (cfg.products.length !== 2) throw new HttpError(400, "Both products are required.");
@@ -328,6 +333,68 @@ route("POST", "/api/ai/write", async (req, res, body) => {
   return undefined;
 });
 
+/* ---------- extract ---------- */
+async function schedulerCaller(req) {
+  const m = (req.headers.authorization || "").match(/^Bearer (.+)$/);
+  if (!m || !EXTRACT_INVOKER || !oidcVerifier) return false;
+  try {
+    const p = (await oidcVerifier.verifyIdToken({ idToken: m[1], audience: EXTRACT_AUDIENCE })).getPayload();
+    return p.email_verified && String(p.email).toLowerCase() === EXTRACT_INVOKER;
+  } catch { return false; }
+}
+route("POST", "/api/extract/run", async req => {
+  let trigger = "schedule";
+  if (!(await schedulerCaller(req))) { const u = await auth(req, ["admin"]); trigger = "manual:" + u.email; limit("extract:" + u.email, 6, 3600_000); }
+  const r = await runExtract({ store, ai, trigger });
+  console.log("extract run", JSON.stringify({ trigger, added: r.added, seen: r.seen, dropped: r.dropped, errors: r.errors, skipped: r.skipped }));
+  return r;
+});
+const publicState = s => ({ lastRun: s.lastRun || null, lastSuccessAt: s.lastSuccessAt || 0, totalAdded: s.totalAdded || 0, running: !!(s.runningSince && Date.now() - s.runningSince < 9 * 60_000) });
+route("GET", "/api/extracts", async (req, res, body, params, url) => {
+  await auth(req);
+  const since = Number(url.searchParams.get("since")) || 0;
+  const serverTime = now();
+  const [items, state] = await Promise.all([store.listExtracts(since), store.getExtractState()]);
+  return { serverTime, items, state: publicState(state), intents: INTENTS };
+});
+const EX_STATUS = ["new", "contacted", "interested", "not_relevant"];
+route("PATCH", "/api/extracts/:id", async (req, res, body, { id }) => {
+  const u = await auth(req, ["admin", "member"]);
+  const x = await store.getExtract(id); if (!x) throw new HttpError(404, "Record not found.");
+  const patch = { updatedAt: now() };
+  if ("remarks" in body) { patch.remarks = str(body.remarks, 4000); patch.remarksBy = u.email; patch.remarksAt = now(); }
+  if ("status" in body) { if (!EX_STATUS.includes(body.status)) throw new HttpError(400, "Unknown status."); patch.status = body.status; }
+  return { item: await store.updateExtract(id, patch) };
+});
+route("POST", "/api/extracts/:id/to-pipeline", async (req, res, body, { id }) => {
+  const u = await auth(req, ["admin", "member"]);
+  const x = await store.getExtract(id); if (!x) throw new HttpError(404, "Record not found.");
+  if (x.leadId) { const l = await store.getLead(x.leadId); if (l && !l.deleted) return { lead: l, item: x }; }
+  const t = now(); const [city, ...rest] = (x.location || "").split(",").map(s => s.trim());
+  const product = x.intent === "hr" ? "hr" : x.intent === "finance" ? "fin" : "both";
+  const lead = await store.createLead({ company: str(x.company || x.personName || x.title, 200), contactName: str(x.personName, 120), contactRole: "", email: str(x.contactEmail, 200),
+    phone: str(x.contactPhone, 60), website: str(x.contactUrl || x.sourceUrl, 300), city: city || "", country: rest.join(", "), industry: "", size: "Unknown", product, stage: "new",
+    nextFollowUp: new Date(t + 864e5).toISOString().slice(0, 10), signal: str(`${INTENTS[x.intent] || "Extract"}: ${x.title} (${x.platform})`, 500),
+    notes: str([x.need, x.budget && "Budget: " + x.budget, "Source: " + x.sourceUrl, x.remarks && "Remarks: " + x.remarks].filter(Boolean).join("\n"), 8000),
+    ownerId: u.email, createdBy: u.email, createdAt: t, updatedAt: t, deleted: false });
+  const item = await store.updateExtract(id, { leadId: lead.id, updatedAt: now(), status: x.status === "new" ? "contacted" : x.status });
+  return { lead, item };
+});
+route("POST", "/api/extracts/:id/message", async (req, res, body, { id }) => {
+  const u = await auth(req, ["admin", "member"]);
+  limit("ai:" + u.email, 40, 600_000);
+  const x = await store.getExtract(id); if (!x) throw new HttpError(404, "Record not found.");
+  const opts = { channel: EX_CHANNELS.includes(body.channel) ? body.channel : "dm", lang: LANGS.includes(body.lang) ? body.lang : "English", extra: str(body.extra, 1000) };
+  const cfg = await getConfig(); const s = u.settings || {};
+  const signature = [s.name || u.name, s.title, cfg.company.name, s.phone, s.link && "Book a call: " + s.link].filter(Boolean).join("\n");
+  const ctl = new AbortController(); res.on("close", () => { if (!res.writableFinished) ctl.abort(); });
+  res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no", ...SEC_HEADERS });
+  try { await ai.stream(extractMessagePrompt(cfg, x, opts, signature), t => res.write(t), ctl.signal); }
+  catch (e) { if (!ctl.signal.aborted) { console.error("extract message failed", e?.message); res.write("\n\n[The AI model stopped early. Try again.]"); } }
+  res.end();
+  return undefined;
+});
+
 /* ---------- server ---------- */
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
@@ -356,5 +423,5 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
-server.listen(PORT, () => console.log(`Coolgen Lead Desk on :${PORT} (store: ${store.kind}, model: ${ai.model}, domains: ${DOMAINS.join(",") || "any"}, approval: ${REQUIRE_APPROVAL}, notify: ${notifyChannels().join("+") || "none"})`));
+server.listen(PORT, () => console.log(`Drops Lead Desk on :${PORT} (store: ${store.kind}, model: ${ai.model}, domains: ${DOMAINS.join(",") || "any"}, approval: ${REQUIRE_APPROVAL}, notify: ${notifyChannels().join("+") || "none"})`));
 process.on("SIGTERM", () => server.close(() => process.exit(0)));

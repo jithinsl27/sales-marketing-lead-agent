@@ -212,3 +212,29 @@ img{max-width:100%}
 .active-s{background:var(--good-soft);color:var(--good)}
 .disabled-s{background:var(--bad-soft);color:var(--bad)}
 .temp{font-family:var(--f-mono);background:var(--surface-2);padding:6px 10px;border-radius:6px;user-select:all}
+
+/* extract table */
+.xstate{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.85rem;color:var(--muted)}
+.xstate b{color:var(--ink);font-variant-numeric:tabular-nums}
+.xwrap{overflow-x:auto}
+table.xt{width:100%;border-collapse:collapse;min-width:1040px;font-size:.88rem}
+.xt th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:10px 12px;white-space:nowrap}
+.xt td{padding:12px;border-top:1px solid var(--line);vertical-align:top}
+.xt tr.fresh td:first-child{box-shadow:inset 3px 0 0 var(--signal)}
+.xt .when{font-family:var(--f-mono);font-size:.78rem;white-space:nowrap;color:var(--muted)}
+.xt .when b{display:block;color:var(--ink);font-weight:500}
+.xt .need{max-width:340px}
+.xt .need .t{font-weight:600;color:var(--ink)}
+.xt .need p{color:var(--muted);margin-top:4px;font-size:.84rem}
+.xt .contact{display:flex;flex-direction:column;gap:3px;max-width:200px;word-break:break-word}
+.xt .contact a,.xt .src a{font-weight:600;text-decoration:none}
+.xt textarea{min-height:64px;min-width:200px;font-size:.85rem;padding:7px 9px}
+.xt select{min-height:34px;padding:5px 8px;font-size:.84rem;min-width:130px}
+.xt .saved{font-size:.72rem;color:var(--good);min-height:1em}
+.i-build{background:var(--signal-soft);color:var(--signal)}
+.i-hr{background:var(--hr-soft);color:var(--hr)}
+.i-crm{background:var(--surface-2);color:var(--ink)}
+.i-finance{background:var(--accent-soft);color:var(--accent)}
+
+#p-extract{max-width:none}
+body .wrap{max-width:1240px}
