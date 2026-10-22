@@ -3,8 +3,15 @@
 #
 #   ADMIN_EMAILS=you@gmail.com ./deploy.sh
 #
-# Optional: PROJECT_ID, REGION (default asia-south1 / Mumbai), ALLOWED_EMAIL_DOMAINS (default gmail.com),
-#           GEMINI_MODEL (default gemini-3.8-flash), GOOGLE_CLIENT_ID (enables "Continue with Google").
+# It asks once for a Gmail App Password so you get an email for every new sign-up (press Enter to skip).
+# Optional settings (put them before ./deploy.sh):
+#   NOTIFY_EMAILS=a@x.com,b@y.com     who gets sign-up emails (default: ADMIN_EMAILS)
+#   SMTP_USER=sender@gmail.com        Gmail account that sends them (default: first ADMIN_EMAILS address)
+#   REQUIRE_APPROVAL=true             new users wait for an admin instead of getting in straight away
+#   ALLOWED_EMAIL_DOMAINS=a.com,b.com limit sign-ups to these domains (default: any email)
+#   NOTIFY_WEBHOOK_URL=https://...    also post sign-ups to a Google Chat or Slack webhook
+#   GOOGLE_CLIENT_ID=...              adds a "Continue with Google" button
+#   REGION=asia-south1  GEMINI_MODEL=gemini-3.8-flash  PROJECT_ID=...
 # Safe to run again: it only creates what's missing, then redeploys.
 set -euo pipefail
 
@@ -13,9 +20,13 @@ if [ -z "$PROJECT_ID" ]; then echo "No project set. Run: gcloud config set proje
 : "${ADMIN_EMAILS:?Set ADMIN_EMAILS to the email of the first admin, e.g.  ADMIN_EMAILS=you@gmail.com ./deploy.sh}"
 REGION="${REGION:-asia-south1}"
 SERVICE="${SERVICE:-coolgen-lead-desk}"
-DOMAINS="${ALLOWED_EMAIL_DOMAINS:-gmail.com}"
+DOMAINS="${ALLOWED_EMAIL_DOMAINS:-}"
+APPROVAL="${REQUIRE_APPROVAL:-false}"
 MODEL="${GEMINI_MODEL:-gemini-3.8-flash}"
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+NOTIFY_EMAILS="${NOTIFY_EMAILS:-$ADMIN_EMAILS}"
+SMTP_USER="${SMTP_USER:-${ADMIN_EMAILS%%,*}}"
+WEBHOOK="${NOTIFY_WEBHOOK_URL:-}"
 SA="${SERVICE}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 gcloud config set project "$PROJECT_ID" >/dev/null
@@ -45,16 +56,39 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${
   --role=roles/cloudbuild.builds.builder --condition=None -q >/dev/null || true
 
 echo "==> Secrets"
+grant () { gcloud secrets add-iam-policy-binding "$1" --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor >/dev/null; }
 make_secret () {
   local name="$1" value="$2"
   if ! gcloud secrets describe "$name" >/dev/null 2>&1; then
     printf '%s' "$value" | gcloud secrets create "$name" --data-file=- --replication-policy=automatic >/dev/null
     echo "    created $name"
   fi
-  gcloud secrets add-iam-policy-binding "$name" --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor >/dev/null
+  grant "$name"
 }
 make_secret cg-session-secret "$(openssl rand -base64 48 | tr -d '\n')"
 make_secret cg-admin-setup-code "$(openssl rand -hex 6)"
+SECRETS="SESSION_SECRET=cg-session-secret:latest,ADMIN_SETUP_CODE=cg-admin-setup-code:latest"
+
+echo "==> Sign-up notifications by email"
+if gcloud secrets describe cg-smtp-pass >/dev/null 2>&1 && [ "${RESET_SMTP:-}" != "1" ]; then
+  echo "    using the saved Gmail App Password for $SMTP_USER (run with RESET_SMTP=1 to change it)"
+else
+  echo "    Emails are sent from $SMTP_USER to $NOTIFY_EMAILS."
+  echo "    Create a Gmail App Password at https://myaccount.google.com/apppasswords (needs 2-Step Verification on)."
+  read -r -s -p "    Paste the 16-letter App Password, or press Enter to skip: " SMTP_PASS_IN; echo
+  SMTP_PASS_IN="${SMTP_PASS_IN// /}"
+  if [ -n "$SMTP_PASS_IN" ]; then
+    if gcloud secrets describe cg-smtp-pass >/dev/null 2>&1; then
+      printf '%s' "$SMTP_PASS_IN" | gcloud secrets versions add cg-smtp-pass --data-file=- >/dev/null
+    else
+      printf '%s' "$SMTP_PASS_IN" | gcloud secrets create cg-smtp-pass --data-file=- --replication-policy=automatic >/dev/null
+    fi
+    echo "    saved"
+  else
+    echo "    skipped: new sign-ups will still show in the app's Team tab"
+  fi
+fi
+if gcloud secrets describe cg-smtp-pass >/dev/null 2>&1; then grant cg-smtp-pass; SECRETS="$SECRETS,SMTP_PASS=cg-smtp-pass:latest"; fi
 
 echo "==> Building and deploying to Cloud Run ($REGION)"
 gcloud run deploy "$SERVICE" \
@@ -64,8 +98,8 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 3 \
   --cpu 1 --memory 512Mi --concurrency 80 --timeout 300 --cpu-throttling \
-  --set-env-vars "^;^NODE_ENV=production;GOOGLE_CLOUD_PROJECT=${PROJECT_ID};ALLOWED_EMAIL_DOMAINS=${DOMAINS};ADMIN_EMAILS=${ADMIN_EMAILS};GEMINI_MODEL=${MODEL};GEMINI_LOCATION=global;GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
-  --set-secrets "SESSION_SECRET=cg-session-secret:latest,ADMIN_SETUP_CODE=cg-admin-setup-code:latest" \
+  --set-env-vars "^;^NODE_ENV=production;GOOGLE_CLOUD_PROJECT=${PROJECT_ID};ALLOWED_EMAIL_DOMAINS=${DOMAINS};REQUIRE_APPROVAL=${APPROVAL};ADMIN_EMAILS=${ADMIN_EMAILS};NOTIFY_EMAILS=${NOTIFY_EMAILS};SMTP_USER=${SMTP_USER};NOTIFY_WEBHOOK_URL=${WEBHOOK};GEMINI_MODEL=${MODEL};GEMINI_LOCATION=global;GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
+  --set-secrets "$SECRETS" \
   --quiet
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
@@ -75,10 +109,12 @@ cat <<EOF
 ========================================================
  Coolgen Lead Desk is live:  $URL
 
- First admin: open the link, choose "Request access",
+ First admin: open the link, choose "Create an account",
  sign up with $ADMIN_EMAILS, open "I'm the first admin"
  and enter this setup code:  $CODE
 
- Then approve your team in the Team tab.
+ Share the link with your team. Each new sign-up is
+ emailed to $NOTIFY_EMAILS (if you saved an App Password)
+ and listed in the app's Team tab.
 ========================================================
 EOF

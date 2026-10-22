@@ -8,11 +8,12 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node server.js",
-    "dev": "DEV_MEMORY_STORE=1 DEV_FAKE_AI=1 ADMIN_EMAILS=admin@gmail.com node server.js"
+    "dev": "DEV_MEMORY_STORE=1 DEV_FAKE_AI=1 ADMIN_EMAILS=admin@example.com node server.js"
   },
   "dependencies": {
     "@google-cloud/firestore": "9.3.1",
     "@google/genai": "2.28.0",
-    "google-auth-library": "11.2.0"
+    "google-auth-library": "11.2.0",
+    "nodemailer": "10.0.16"
   }
 }

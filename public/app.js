@@ -576,14 +576,14 @@ async function loadTeamAdmin(){
 }
 function renderTeamAdmin(users){
   const order = { pending: 0, active: 1, disabled: 2 };
-  users.sort((a, b) => order[a.status] - order[b.status] || (a.name || "").localeCompare(b.name || ""));
+  users.sort((a, b) => order[a.status] - order[b.status] || (b.createdAt || 0) - (a.createdAt || 0));
   const pending = users.filter(u => u.status === "pending").length;
   const pb = $("#pendingBadge"); pb.hidden = !pending; pb.textContent = pending;
   $("#teamList").innerHTML = users.map(u => `
     <div class="urow">
       <div class="owner" style="font-size:.95rem">${avatarHTML(u.email, u.name, u.picture)}<div style="min-width:0"><div style="font-weight:600" class="u-name"></div><div class="note u-mail"></div></div></div>
       <div><span class="chip ${u.status === "pending" ? "pending" : u.status === "active" ? "active-s" : "disabled-s"}">${u.status === "pending" ? "Waiting for approval" : u.status === "active" ? "Active" : "Disabled"}</span>
-        <div class="note">${u.provider === "google" ? "Google sign-in" : "Password"}</div></div>
+        <div class="note">${u.provider === "google" ? "Google" : "Password"} · joined ${u.createdAt ? new Date(u.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "—"}</div></div>
       <div><label class="sr" for="role-${esc(u.email)}">Role</label><select id="role-${esc(u.email)}" data-role="${esc(u.email)}" ${u.email === S.uid ? "disabled" : ""}>${opt([["member","Member"],["viewer","Viewer"],["admin","Admin"]], u.role)}</select></div>
       <div class="acts">
         ${u.status === "pending" ? `<button class="btn small primary" data-ustatus="active" data-u="${esc(u.email)}">Approve</button><button class="btn small" data-ustatus="disabled" data-u="${esc(u.email)}">Reject</button>` : ""}
@@ -647,7 +647,9 @@ function showAuth(mode, note){
   $("#loginForm").hidden = mode !== "login"; $("#signupForm").hidden = mode !== "signup"; $("#pendingView").hidden = mode !== "pending";
   $("#authTitle").textContent = mode === "signup" ? "Request access" : mode === "pending" ? "Almost there" : "Sign in";
   const doms = (S.pub?.domains || []).map(d => "@" + d).join(", ");
-  $("#authSub").textContent = note || (mode === "pending" ? "" : `${S.pub?.company || "Coolgen"} sales team. Use your ${doms} address.`);
+  $("#authSub").textContent = note || (mode === "pending" ? "" : `${S.pub?.company || "Coolgen"} sales team.${doms ? ` Use your ${doms} address.` : mode === "signup" ? " Create your account with your work or personal email." : ""}`);
+  $("#suBtn").textContent = S.pub?.approval ? "Request access" : "Create account";
+  $("#authTitle").textContent = mode === "signup" ? (S.pub?.approval ? "Request access" : "Create your account") : $("#authTitle").textContent;
   $("#gsiWrap").hidden = mode === "pending" || !S.pub?.googleClientId;
 }
 document.addEventListener("click", e => { const a = e.target.closest("[data-auth]"); if (a) showAuth(a.dataset.auth); });

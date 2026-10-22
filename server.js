@@ -7,10 +7,14 @@ import { fileURLToPath } from "node:url";
 import { createStore } from "./store.js";
 import { createAI } from "./ai.js";
 import { DEFAULT_CFG, STAGES, CHANNELS, LANGS, qualifyPrompt, writePrompt } from "./prompts.js";
+import { notifySignup, notifyChannels } from "./notify.js";
 
 const PORT = Number(process.env.PORT || 8080);
 const PROD = process.env.NODE_ENV === "production";
-const DOMAINS = (process.env.ALLOWED_EMAIL_DOMAINS || "gmail.com").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+// Empty or "*" = any email address may sign up. Otherwise a comma-separated list of domains.
+const DOMAINS = (process.env.ALLOWED_EMAIL_DOMAINS || "*").split(",").map(s => s.trim().toLowerCase()).filter(d => d && d !== "*");
+// "true" = new accounts wait for an admin; anything else = they can use the app straight away.
+const REQUIRE_APPROVAL = String(process.env.REQUIRE_APPROVAL || "false").toLowerCase() === "true";
 const ADMINS = (process.env.ADMIN_EMAILS || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const SECRET = process.env.SESSION_SECRET || (PROD ? "" : "local-dev-secret");
@@ -39,7 +43,7 @@ const SEC_HEADERS = { "content-security-policy": CSP, "x-content-type-options": 
 /* ---------- helpers ---------- */
 const now = () => Date.now();
 const isEmail = e => typeof e === "string" && /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,}$/i.test(e);
-const domainOk = e => DOMAINS.includes(e.split("@")[1]);
+const domainOk = e => !DOMAINS.length || DOMAINS.includes(e.split("@")[1]);
 const str = (v, max) => typeof v === "string" ? v.trim().slice(0, max) : "";
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
@@ -144,7 +148,8 @@ const routes = [];
 const route = (method, pattern, fn) => routes.push({ method, re: new RegExp("^" + pattern.replace(/:(\w+)/g, "(?<$1>[^/]+)") + "$"), fn });
 
 route("GET", "/healthz", async () => ({ ok: true }));
-route("GET", "/api/public-config", async () => ({ domains: DOMAINS, googleClientId: GOOGLE_CLIENT_ID, company: (await getConfig()).company.name }));
+route("GET", "/api/public-config", async () => ({ domains: DOMAINS, approval: REQUIRE_APPROVAL, googleClientId: GOOGLE_CLIENT_ID, company: (await getConfig()).company.name }));
+const appUrl = req => `https://${req.headers["x-forwarded-host"] || req.headers.host}`;
 
 route("POST", "/api/auth/signup", async (req, res, body) => {
   limit("signup:" + ip(req), 10, 3600_000);
@@ -163,8 +168,9 @@ route("POST", "/api/auth/signup", async (req, res, body) => {
   const isAdmin = ADMINS.includes(email) && !!SETUP && code.length === SETUP.length && crypto.timingSafeEqual(Buffer.from(code), Buffer.from(SETUP));
   if (ADMINS.includes(email) && !isAdmin) throw new HttpError(403, "This is an admin address. Enter the admin setup code from the deploy output, or sign in with Google.");
   const user = { email, name, provider: "password", passSalt: salt, passHash: hash, createdAt: now(),
-    role: isAdmin ? "admin" : "member", status: isAdmin ? "active" : "pending", sessionVersion: 1 };
+    role: isAdmin ? "admin" : "member", status: isAdmin || !REQUIRE_APPROVAL ? "active" : "pending", sessionVersion: 1 };
   await putUser(email, user);
+  await notifySignup(user, appUrl(req));
   if (user.status === "active") { res.setHeader("set-cookie", makeCookie(user)); return { status: "active", user: publicUser(user) }; }
   return { status: "pending" };
 });
@@ -195,8 +201,9 @@ route("POST", "/api/auth/google", async (req, res, body) => {
   const isAdmin = ADMINS.includes(email);
   if (!user) {
     user = { email, name: str(p.name || "", 80) || email.split("@")[0], picture: str(p.picture || "", 500), provider: "google", createdAt: now(),
-      role: isAdmin ? "admin" : "member", status: isAdmin ? "active" : "pending", sessionVersion: 1 };
+      role: isAdmin ? "admin" : "member", status: isAdmin || !REQUIRE_APPROVAL ? "active" : "pending", sessionVersion: 1 };
     await putUser(email, user);
+    await notifySignup(user, appUrl(req));
   } else if (p.picture && user.picture !== p.picture) { await putUser(email, { picture: str(p.picture, 500) }); }
   if (user.status === "pending") return { status: "pending" };
   if (user.status !== "active") throw new HttpError(403, "This account has been disabled. Contact your admin.");
@@ -349,5 +356,5 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
-server.listen(PORT, () => console.log(`Coolgen Lead Desk on :${PORT} (store: ${store.kind}, model: ${ai.model}, domains: ${DOMAINS.join(",")})`));
+server.listen(PORT, () => console.log(`Coolgen Lead Desk on :${PORT} (store: ${store.kind}, model: ${ai.model}, domains: ${DOMAINS.join(",") || "any"}, approval: ${REQUIRE_APPROVAL}, notify: ${notifyChannels().join("+") || "none"})`));
 process.on("SIGTERM", () => server.close(() => process.exit(0)));

@@ -24,7 +24,7 @@
       <div class="field"><label for="liPw">Password</label><input type="password" id="liPw" autocomplete="current-password" required></div>
       <div class="err" id="liErr" role="alert"></div>
       <button class="btn primary" type="submit">Sign in</button>
-      <p class="note">New to the team? <button type="button" class="linkbtn" data-auth="signup">Request access</button></p>
+      <p class="note">New here? <button type="button" class="linkbtn" data-auth="signup">Create an account</button></p>
     </form>
     <form id="signupForm" novalidate hidden>
       <div class="field"><label for="suName">Your name</label><input type="text" id="suName" autocomplete="name" required></div>
@@ -32,7 +32,7 @@
       <div class="field"><label for="suPw">Password</label><input type="password" id="suPw" autocomplete="new-password" placeholder="At least 10 characters" required></div>
       <details><summary class="note" style="cursor:pointer">I'm the first admin</summary><div class="field" style="margin-top:8px"><label for="suCode">Admin setup code</label><input type="text" id="suCode" autocomplete="off"></div></details>
       <div class="err" id="suErr" role="alert"></div>
-      <button class="btn primary" type="submit">Request access</button>
+      <button class="btn primary" type="submit" id="suBtn">Create account</button>
       <p class="note">Already have an account? <button type="button" class="linkbtn" data-auth="login">Sign in</button></p>
     </form>
     <div id="pendingView" hidden class="empty" style="padding:8px 0">
@@ -172,8 +172,8 @@
 
   <!-- TEAM (admins) -->
   <section class="panel" id="p-team" hidden>
-    <div class="head"><div><h1>Team</h1><p>Approve people who asked to join, set roles and reset passwords. Members add and work leads, viewers can only look, admins also manage products and the team.</p></div></div>
-    <div class="banner">Password sign-ups aren't email-verified. Approve only people you know, and check with them if you're unsure.</div>
+    <div class="head"><div><h1>Team</h1><p>Everyone who has signed up, newest first. Set roles, disable people and reset passwords. Members add and work leads, viewers can only look, admins also manage products and the team.</p></div></div>
+    <div class="banner">Anyone with the link can create an account. Password sign-ups aren't email-verified, so disable anyone you don't recognise.</div>
     <div class="card pipe" id="teamList"></div>
   </section>
 </main>
