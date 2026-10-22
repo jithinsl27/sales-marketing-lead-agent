@@ -123,7 +123,7 @@ let cfgCache = null;
 async function getConfig() {
   if (cfgCache && now() - cfgCache.at < 60_000) return cfgCache.cfg;
   const c = await store.getConfig();
-  const cfg = c ? { company: { ...DEFAULT_CFG.company, ...(c.company || {}) }, products: Array.isArray(c.products) && c.products.length ? c.products : DEFAULT_CFG.products } : DEFAULT_CFG;
+  const cfg = c ? { salesTeam: Array.isArray(c.salesTeam) ? c.salesTeam : [], company: { ...DEFAULT_CFG.company, ...(c.company || {}) }, products: Array.isArray(c.products) && c.products.length ? c.products : DEFAULT_CFG.products } : DEFAULT_CFG;
   cfgCache = { cfg, at: now() }; return cfg;
 }
 
@@ -268,13 +268,21 @@ route("GET", "/api/config", async req => { await auth(req); return { config: awa
 route("PUT", "/api/config", async (req, res, body) => {
   await auth(req, ["admin"]);
   const c = body.config || {};
-  const cfg = { company: { name: str(c.company?.name, 120) || DEFAULT_CFG.company.name, pitch: str(c.company?.pitch, 600), offerings: str(c.company?.offerings, 2000) },
+  const old = await getConfig();
+  const cfg = { salesTeam: old.salesTeam || [], company: { name: str(c.company?.name, 120) || DEFAULT_CFG.company.name, pitch: str(c.company?.pitch, 600), offerings: str(c.company?.offerings, 2000) },
     products: (Array.isArray(c.products) ? c.products : []).slice(0, 2).map((p, i) => ({ id: DEFAULT_CFG.products[i].id, name: str(p.name, 60) || DEFAULT_CFG.products[i].name,
       oneLiner: str(p.oneLiner, 300), idealCustomer: str(p.idealCustomer, 600), description: str(p.description, 6000) })) };
   if (cfg.products.length !== 2) throw new HttpError(400, "Both products are required.");
   await store.setConfig(cfg); cfgCache = null; return { config: cfg };
 });
 
+// Sales team names that can be assigned to Extract records (in addition to people who have accounts).
+route("PUT", "/api/config/sales-team", async (req, res, body) => {
+  await auth(req, ["admin"]);
+  const names = [...new Set((Array.isArray(body.names) ? body.names : []).map(n => str(String(n), 60)).filter(Boolean))].slice(0, 100);
+  const cfg = { ...(await getConfig()), salesTeam: names };
+  await store.setConfig(cfg); cfgCache = null; return { salesTeam: names };
+});
 route("GET", "/api/leads", async (req, res, body, params, url) => {
   await auth(req);
   const since = Number(url.searchParams.get("since")) || 0;
@@ -402,7 +410,32 @@ route("PATCH", "/api/extracts/:id", async (req, res, body, { id }) => {
   const patch = { updatedAt: now() };
   if ("remarks" in body) { patch.remarks = str(body.remarks, 4000); patch.remarksBy = u.email; patch.remarksAt = now(); }
   if ("status" in body) { if (!EX_STATUS.includes(body.status)) throw new HttpError(400, "Unknown status."); patch.status = body.status; }
+  if ("assignedTo" in body) {
+    const to = str(String(body.assignedTo || ""), 260).toLowerCase().startsWith("name:") ? "name:" + str(String(body.assignedTo).slice(5), 60) : str(String(body.assignedTo || ""), 254).toLowerCase();
+    if (u.role !== "admin") {
+      // Members can take an unassigned record, or let go of their own.
+      if (!((to === u.email && !x.assignedTo) || (to === "" && x.assignedTo === u.email) || to === x.assignedTo))
+        throw new HttpError(403, x.assignedTo ? "Someone else is already working on this. Ask an admin to reassign it." : "You can only assign records to yourself.");
+    } else if (to) {
+      const ok = to.startsWith("name:") ? (await getConfig()).salesTeam.some(n => "name:" + n.toLowerCase() === to.toLowerCase())
+        : (await team()).some(m => m.email === to && m.status === "active");
+      if (!ok) throw new HttpError(400, "Pick someone from the team list.");
+    }
+    if (to.startsWith("name:")) { const n = (await getConfig()).salesTeam.find(n => "name:" + n.toLowerCase() === to.toLowerCase()); patch.assignedTo = "name:" + n; }
+    else patch.assignedTo = to;
+    patch.assignedBy = u.email; patch.assignedAt = now();
+  }
   return { item: await store.updateExtract(id, patch) };
+});
+route("POST", "/api/extracts/clear", async (req, res, body) => {
+  const u = await auth(req, ["admin"]);
+  if (body.confirm !== "CLEAR") throw new HttpError(400, "Confirmation missing.");
+  const s = await store.getExtractState();
+  if (s.runningSince && Date.now() - s.runningSince < 9 * 60_000) throw new HttpError(409, "Stop the running extract first, then clear.");
+  const deleted = await store.clearExtracts();
+  await store.setExtractState({ rotation: 0, totalAdded: 0, lastRun: null, lastSuccessAt: 0, clearedAt: now(), clearedBy: u.email });
+  console.log("extracts cleared", JSON.stringify({ by: u.email, deleted }));
+  return { deleted };
 });
 route("POST", "/api/extracts/:id/to-pipeline", async (req, res, body, { id }) => {
   const u = await auth(req, ["admin", "member"]);
@@ -410,11 +443,12 @@ route("POST", "/api/extracts/:id/to-pipeline", async (req, res, body, { id }) =>
   if (x.leadId) { const l = await store.getLead(x.leadId); if (l && !l.deleted) return { lead: l, item: x }; }
   const t = now(); const [city, ...rest] = (x.location || "").split(",").map(s => s.trim());
   const product = x.intent === "hr" ? "hr" : x.intent === "finance" ? "fin" : "both";
+  const owner = x.assignedTo && !x.assignedTo.startsWith("name:") ? x.assignedTo : u.email;
   const lead = await store.createLead({ company: str(x.company || x.personName || x.title, 200), contactName: str(x.personName, 120), contactRole: "", email: str(x.contactEmail, 200),
     phone: str(x.contactPhone, 60), website: str(x.contactUrl || x.sourceUrl, 300), city: city || "", country: rest.join(", "), industry: "", size: "Unknown", product, stage: "new",
     nextFollowUp: new Date(t + 864e5).toISOString().slice(0, 10), signal: str(`${INTENTS[x.intent] || "Extract"}: ${x.title} (${x.platform})`, 500),
     notes: str([x.need, x.budget && "Budget: " + x.budget, "Source: " + x.sourceUrl, x.remarks && "Remarks: " + x.remarks].filter(Boolean).join("\n"), 8000),
-    ownerId: u.email, createdBy: u.email, createdAt: t, updatedAt: t, deleted: false });
+    ownerId: owner, createdBy: u.email, createdAt: t, updatedAt: t, deleted: false });
   const item = await store.updateExtract(id, { leadId: lead.id, updatedAt: now(), status: x.status === "new" ? "contacted" : x.status });
   return { lead, item };
 });

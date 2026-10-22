@@ -1,5 +1,6 @@
 // Default product details and the prompts sent to Gemini. Product details can be edited in the app (Products tab).
 export const DEFAULT_CFG = {
+  salesTeam: [],
   company: { name: "Drops", pitch: "Practical HR and finance software for growing small and mid-size businesses in India and the Middle East.",
     offerings: "Drops HR (HR, attendance and AI HR chatbot), Fin360 (billing, purchases, inventory and finance dashboard) and Drops CRM (sales pipeline and customer management). Drops also builds custom software for clients: web apps, mobile apps, websites, SaaS products and AI chatbots/agents, with a team experienced in Node.js, React, Python and Google Cloud." },
   products: [
@@ -96,7 +97,7 @@ Rules: Mention only features listed in our product information. Do not invent st
 }
 
 // Personalised reply to someone found by Extract.
-const EX_INTENT = { build: "wants a freelancer or agency to build something", hr: "is looking for HR software", crm: "is looking for a CRM", finance: "is looking for finance or accounting software" };
+const EX_INTENT = { build: "wants a freelancer or agency to build something", hr: "is looking for HR software", crm: "is looking for a CRM", finance: "is looking for finance or accounting software", other: "is looking for a software solution or tool for their business" };
 const EX_CHANNEL = {
   reply: "a public reply or comment under their post: under 70 words, helpful first, no hard sell, invite them to DM or book a call",
   dm: "a private message (LinkedIn DM / platform message): under 110 words, reference their exact requirement, one clear next step",

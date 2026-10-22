@@ -1,31 +1,47 @@
-// Extract: finds public posts from people who are looking for
+// Extract: finds public posts (LinkedIn first, then other social media) from people who are looking for
+//   - a CRM, finance/accounting software, HR software, or another software solution
 //   - a freelancer or agency to build software, apps, websites or AI solutions
-//   - HR software, a CRM, or finance/accounting software
 // Sources: Gemini with Google Search grounding (covers public LinkedIn posts indexed by Google, Reddit, Quora,
 // forums and other open sites) and Freelancer.com's public active-projects feed.
 // Only details the poster published in the post are kept; nothing is looked up about individuals.
 import crypto from "node:crypto";
 
 export const INTENTS = {
-  build: "Freelance build",
-  hr: "Needs HR software",
-  crm: "Needs a CRM",
-  finance: "Needs finance software"
+  crm: "CRM",
+  finance: "Finance",
+  hr: "HR",
+  build: "Freelance",
+  other: "Other solutions"
 };
 
-const WEB_PLAN = [
-  { intent: "build", focus: "people or companies looking to hire a freelancer, developer or agency to build a web app, mobile app, website, SaaS product, AI chatbot or AI agent (project work, not full-time jobs)" },
-  { intent: "hr", focus: "business owners, founders or HR managers asking for recommendations for HR software, HRMS, payroll, attendance or employee management tools" },
-  { intent: "crm", focus: "business owners or sales leaders asking for recommendations for a CRM, or looking for someone to set up or build a CRM" },
-  { intent: "finance", focus: "business owners or finance/accounts teams asking for recommendations for accounting, invoicing, inventory, billing or ERP software (e.g. moving off Tally or Excel)" }
+// Each run takes the next step(s): LinkedIn first, then other social media, across all five needs.
+const PHRASES = {
+  crm: ['"looking for a CRM"', '"recommend a CRM"', '"need a CRM"', '"CRM suggestions"', '"which CRM"'],
+  finance: ['"looking for accounting software"', '"recommend accounting software"', '"need an ERP"', '"inventory software" recommendation', '"moving from Tally"'],
+  hr: ['"looking for HR software"', '"recommend an HRMS"', '"payroll software" recommendation', '"attendance software" suggestions', '"need HR software"'],
+  build: ['"looking for a freelancer"', '"looking for a developer"', '"need someone to build"', '"looking for an agency"', '"hiring a freelance developer"'],
+  other: ['"looking for a solution"', '"looking for software"', '"need an app"', '"looking for automation"', '"can anyone recommend a tool"']
+};
+const FOCUS = {
+  crm: "business owners or sales leaders looking for a CRM, asking for CRM recommendations, or wanting someone to set up or build a CRM",
+  finance: "business owners or finance/accounts teams looking for accounting, invoicing, billing, inventory or ERP software (for example moving off Tally or Excel)",
+  hr: "founders or HR managers looking for HR software, HRMS, payroll, attendance or employee-management tools",
+  build: "people or companies looking for a freelancer, developer or agency to build a web app, mobile app, website, SaaS product, AI chatbot or AI agent (project work, not full-time jobs)",
+  other: "business owners looking for a software solution, tool, automation or custom system for a business problem that is not CRM, HR or finance software"
+};
+const WHERE = [
+  { name: "LinkedIn", sites: "site:linkedin.com/posts OR site:linkedin.com/feed", label: "LinkedIn posts" },
+  { name: "social", sites: "site:reddit.com OR site:x.com OR site:twitter.com OR site:facebook.com OR site:quora.com", label: "Reddit, X, Facebook and Quora" }
 ];
+const WEB_PLAN = WHERE.flatMap(w => Object.keys(INTENTS).map(intent => ({ intent, where: w, focus: FOCUS[intent], phrases: PHRASES[intent] })));
 const MARKETS = ["India", "the UAE and Saudi Arabia", "India", "the Middle East (Qatar, Oman, Bahrain, Kuwait)", "India", "anywhere (global, English-language)"];
 
 const FREELANCER_QUERIES = {
   build: ["web application development", "mobile app development", "website development", "AI chatbot", "SaaS development", "AI agent"],
   hr: ["HR software", "HRMS", "payroll software", "attendance system"],
   crm: ["CRM", "CRM development", "Zoho CRM", "HubSpot"],
-  finance: ["accounting software", "ERP", "inventory management system", "invoice software"]
+  finance: ["accounting software", "ERP", "inventory management system", "invoice software"],
+  other: ["automation", "custom software", "dashboard", "booking system"]
 };
 
 const str = (v, max) => (typeof v === "string" ? v : v == null ? "" : String(v)).replace(/\s+/g, " ").trim().slice(0, max);
@@ -41,9 +57,12 @@ const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,}$/i;
 /* ---------- Web (Gemini + Google Search) ---------- */
 function webPrompt(step, market) {
   const since = new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10);
+  const loc = /anywhere/.test(market) ? "" : " " + market.replace(/^the /, "").split(" (")[0].replace(" and ", " OR ");
   return `INTENT=${step.intent}
-Use Google Search to find real, public posts published on or after ${since} from ${step.focus}.
-Focus on ${market}. Look across LinkedIn posts, Reddit, Quora, X/Twitter, Facebook groups, IndieHackers, Product Hunt discussions, startup and business forums, and freelance boards.
+Use Google Search to find real, public ${step.where.label} published on or after ${since} from ${step.focus}.
+Focus on ${market}.
+Run several searches like these (vary the phrases):
+${step.phrases.slice(0, 4).map(p => `  ${step.where.sites} ${p}${loc}`).join("\n")}
 
 Rules:
 - Only include posts where the author is a potential BUYER with that need. Exclude vendor ads, agencies promoting themselves, full-time job listings, listicles and news articles.
@@ -71,7 +90,7 @@ async function fromWeb(ai, step, market, signal) {
     if (!isHttp(url) || !grounded || !str(r?.title, 10)) { dropped++; continue; }
     const email = str(r.contactEmail, 200);
     items.push({
-      id: idFor(url), source: "web", intent: step.intent, platform: str(r.platform, 40) || host, title: str(r.title, 200), need: str(r.need, 600),
+      id: idFor(url), source: "web", intent: step.intent, platform: str(r.platform, 40) || (step.where.name === "LinkedIn" ? "LinkedIn" : host), title: str(r.title, 200), need: str(r.need, 600),
       personName: str(r.personName, 120), company: str(r.company, 160), location: str(r.location, 120),
       contactEmail: EMAIL.test(email) ? email : "", contactPhone: str(r.contactPhone, 40).replace(/[^\d+()\-\s]/g, ""),
       contactUrl: isHttp(r.contactUrl) ? str(r.contactUrl, 400) : "", sourceUrl: url,
@@ -131,7 +150,7 @@ export async function runExtract({ store, ai, trigger }) {
     for (let i = 0; i < perRun && !ctl.signal.aborted; i++) {
       const k = n * perRun + i;
       const step = WEB_PLAN[k % WEB_PLAN.length], market = MARKETS[Math.floor(k / WEB_PLAN.length) % MARKETS.length];
-      await progress(`Searching the web: ${INTENTS[step.intent]} in ${market}`);
+      await progress(`Searching ${step.where.label}: ${INTENTS[step.intent]} · ${market}`);
       try { const r = await fromWeb(ai, step, market, ctl.signal); report.dropped += r.dropped; await save(r.items); }
       catch (e) { if (!ctl.signal.aborted) report.errors.push(`Web search (${step.intent}): ${e.message}`); }
     }

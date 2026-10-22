@@ -77,10 +77,11 @@
   <!-- EXTRACT -->
   <section class="panel" id="p-extract" hidden>
     <div class="head">
-      <div><h1>Extract</h1><p>Public posts from people who want software built, or who are shopping for HR, CRM or finance software. New finds are added automatically every 30 minutes.</p></div>
+      <div><h1>Extract</h1><p>Public LinkedIn and social media posts from people looking for a freelancer, or for CRM, finance, HR or other software solutions. New finds are added automatically every 30 minutes. Take the ones you'll work on so the team doesn't double up.</p></div>
       <div class="row">
         <label class="switch" id="xAutoWrap" hidden><input type="checkbox" id="xAuto" role="switch"><span class="track" aria-hidden="true"></span><span>Auto every 30 min</span></label>
         <button class="btn" id="xExport">Export CSV</button>
+        <button class="btn ghost" id="xClear" hidden>Clear all</button>
         <button class="btn danger" id="xStop" hidden>Stop extract</button>
         <button class="btn primary" id="xStart" hidden>Start extract</button>
       </div>
@@ -90,7 +91,9 @@
     <div class="filters">
       <div class="field" style="flex:1 1 220px;max-width:300px"><label class="sr" for="xSearch">Search</label><input type="search" id="xSearch" placeholder="Search need, name, company, location"></div>
       <span id="xIntents" class="filters"></span>
+      <div class="field" style="flex:0 1 190px"><label class="sr" for="xAssigned">Assigned to</label><select id="xAssigned"></select></div>
       <div class="field" style="flex:0 1 170px"><label class="sr" for="xStatus">Status</label><select id="xStatus"><option value="all">All statuses</option><option value="new">New</option><option value="contacted">Contacted</option><option value="interested">Interested</option><option value="not_relevant">Not relevant</option></select></div>
+      <button class="btn small ghost" type="button" id="xReset">Reset filters</button>
     </div>
     <div class="card pipe"><div class="xwrap" id="xTable"></div></div>
   </section>
@@ -197,6 +200,12 @@
     <div class="head"><div><h1>Team</h1><p>Everyone who has signed up, newest first. Set roles, disable people and reset passwords. Members add and work leads, viewers can only look, admins also manage products and the team.</p></div></div>
     <div class="banner">Anyone with the link can create an account. Password sign-ups aren't email-verified, so disable anyone you don't recognise.</div>
     <div class="card pipe" id="teamList"></div>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <h2>Sales team names</h2>
+      <p class="note">Names you can assign Extract records to, in addition to everyone listed above. Use this for sales people who don't have an account yet. One name per line.</p>
+      <div class="field"><label for="salesTeam">Names</label><textarea id="salesTeam" rows="6" placeholder="Priya Nair&#10;Arjun Mehta&#10;Fatima Al Harbi"></textarea></div>
+      <div class="row"><button class="btn primary" id="salesTeamSave">Save names</button></div>
+    </div>
   </section>
 </main>
 

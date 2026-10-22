@@ -19,8 +19,17 @@ It runs on **Google Cloud Run**, stores data in **Firestore**, uses **Gemini 3.8
 
 ## How Extract works
 
+- **What it looks for:** posts saying things like "looking for a freelancer", "looking for a developer", "looking for a CRM", "recommend accounting software", "need HR software" or "looking for a solution". These are grouped into **CRM, Finance, HR, Freelance and Other solutions**, and each group is a filter in the table.
+- **Assigning work:**
+  - Every record has an **Assigned to** column.
+  - Team members click **Take it** to claim an unassigned record, or **Release** to hand it back. They can't take a record someone else already has.
+  - Admins can assign anyone: people with accounts, plus extra **Sales team names** listed in the Team tab.
+  - Filter by **Assigned to me**, **Unassigned** or a person.
+- **Resetting:**
+  - **Reset filters** clears the search and filters.
+  - **Clear all** (admins only) permanently deletes every Extract record and restarts the search from the beginning. You confirm by typing CLEAR. Leads already in the pipeline are kept.
 - **Two sources:**
-  - **Gemini with Google Search grounding:** finds public posts on LinkedIn (pages Google has indexed), Reddit, Quora, X, forums and other open sites.
+  - **Gemini with Google Search grounding:** searches LinkedIn posts first (`site:linkedin.com/posts`, pages Google has indexed), then Reddit, X, Facebook and Quora.
   - **Freelancer.com's public projects feed.**
 - **No direct LinkedIn scraping:** LinkedIn's terms forbid it and it gets blocked, so LinkedIn posts come only from Google's index.
 - **Checked sources:** every web find must point to a page that Google Search actually returned. Anything the model can't back with a search result is discarded.

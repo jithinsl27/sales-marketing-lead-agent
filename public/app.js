@@ -572,6 +572,7 @@ function paintMe(){
 
 /* ---------- TEAM (admin) ---------- */
 async function loadTeamAdmin(){
+  $("#salesTeam").value = (S.cfg.salesTeam || []).join("\n");
   const box = $("#teamList");
   box.innerHTML = `<div class="empty"><div class="thinking"><span class="spin"></span>Loading team…</div></div>`;
   try { const { users } = await api("GET", "/api/admin/users"); renderTeamAdmin(users); }
@@ -598,6 +599,11 @@ function renderTeamAdmin(users){
   $$("#teamList .urow").forEach((row, i) => { row.querySelector(".u-name").textContent = users[i].name; row.querySelector(".u-mail").textContent = users[i].email; });
 }
 function buildTeamAdmin(){
+  $("#salesTeamSave").addEventListener("click", async () => {
+    const names = $("#salesTeam").value.split("\n").map(s => s.trim()).filter(Boolean);
+    try { const r = await api("PUT", "/api/config/sales-team", { names }); S.cfg.salesTeam = r.salesTeam; $("#salesTeam").value = r.salesTeam.join("\n"); toast("Sales team names saved"); renderExtract(true); }
+    catch (err) { toast(errMsg(err)); }
+  });
   $("#teamList").addEventListener("click", async e => {
     const s = e.target.closest("[data-ustatus]");
     if (s) { try { await api("PATCH", "/api/admin/users/" + encodeURIComponent(s.dataset.u), { status: s.dataset.ustatus }); toast(s.dataset.ustatus === "active" ? "Access granted" : "Access removed"); loadTeamAdmin(); loadTeam(); } catch (err) { toast(errMsg(err)); } }
@@ -648,17 +654,23 @@ function buildFindProductButtons(){
 const X_STATUS = [["new","New"],["contacted","Contacted"],["interested","Interested"],["not_relevant","Not relevant"]];
 const X_CH = [["dm","Direct message"],["reply","Reply to post"],["email","Email"],["proposal","Proposal / bid"]];
 Object.assign(S, { xMap: new Map(), xLast: 0, xIntents: { build: "Freelance build", hr: "Needs HR software", crm: "Needs a CRM", finance: "Needs finance software" },
-  xState: null, xf: { intent: "all", status: "all", q: "" }, xSeen: ls.get("drops.xseen", 0), xPending: false });
+  xState: null, xf: { intent: "all", status: "all", q: "", assigned: "all" }, xSeen: ls.get("drops.xseen", 0), xPending: false });
 const fmtWhen = ms => { const d = new Date(ms); return { day: d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }), time: d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) }; };
 const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
 const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : "";
+function assigneeOptions(){
+  const people = (S.team || []).filter(m => m.email).map(m => [m.email, m.email === S.uid ? `${m.name || m.email} (you)` : (m.name || m.email)]);
+  const names = (S.cfg.salesTeam || []).map(n => ["name:" + n, n]);
+  return [...people, ...names];
+}
+function assigneeName(a){ if (!a) return ""; if (a.startsWith("name:")) return a.slice(5); if (a === S.uid) return "You"; return S.names[a]?.name || a.split("@")[0]; }
 function markExtractSeen(){ S.xSeen = Date.now(); ls.set("drops.xseen", S.xSeen); paintXBadge(); }
 function paintXBadge(){ if (S.tab === "extract") { $("#xBadge").hidden = true; return; } const n = [...S.xMap.values()].filter(x => x.addedAt > S.xSeen).length; const b = $("#xBadge"); b.hidden = !n || S.tab === "extract"; b.textContent = n; }
 async function syncExtracts(full){
   try {
     let r = await api("GET", "/api/extracts" + (full || !S.xLast ? "" : "?since=" + (S.xLast - 120000)));
     // Safety net: if the browser holds fewer records than the server has, reload the whole list once.
-    if (!full && S.xLast && typeof r.total === "number" && S.xMap.size + r.items.filter(x => !S.xMap.has(x.id)).length < r.total) { full = true; r = await api("GET", "/api/extracts"); }
+    if (!full && S.xLast && typeof r.total === "number" && S.xMap.size + r.items.filter(x => !S.xMap.has(x.id)).length !== r.total) { full = true; r = await api("GET", "/api/extracts"); }
     if (full || !S.xLast) S.xMap = new Map();
     for (const x of r.items) S.xMap.set(x.id, x);
     S.xLast = r.serverTime; S.xState = r.state; S.xTotal = r.total; if (r.intents) S.xIntents = r.intents;
@@ -671,6 +683,9 @@ function buildExtract(){
   $("#xIntents").addEventListener("click", e => { const b = e.target.closest("[data-xi]"); if (b) { S.xf.intent = b.dataset.xi; renderExtract(true); } });
   $("#xExport").addEventListener("click", exportExtractCsv);
   $("#xStart").addEventListener("click", startExtract);
+  $("#xAssigned").addEventListener("change", e => { S.xf.assigned = e.target.value; renderExtract(true); });
+  $("#xReset").addEventListener("click", () => { S.xf = { intent: "all", status: "all", q: "", assigned: "all" }; $("#xSearch").value = ""; $("#xStatus").value = "all"; renderExtract(true); toast("Filters cleared"); });
+  $("#xClear").addEventListener("click", openClearAll);
   $("#xStop").addEventListener("click", stopExtract);
   $("#xAuto").addEventListener("change", async e => {
     const on = e.target.checked;
@@ -690,11 +705,20 @@ function buildExtract(){
     if (S.xPending) setTimeout(() => { if (!tbl.contains(document.activeElement) || document.activeElement.tagName !== "TEXTAREA") renderExtract(); }, 50);
   });
   tbl.addEventListener("change", async e => {
+    const a = e.target.closest("select[data-xa]");
+    if (a) { try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(a.dataset.xa), { assignedTo: a.value }); S.xMap.set(r.item.id, r.item); toast(a.value ? "Assigned to " + assigneeName(a.value) : "Unassigned"); renderExtract(true); } catch (err) { toast(errMsg(err)); renderExtract(true); } return; }
     const s = e.target.closest("select[data-xs]"); if (!s) return;
     try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(s.dataset.xs), { status: s.value }); S.xMap.set(r.item.id, r.item); toast("Status updated"); }
     catch (err) { toast(errMsg(err)); renderExtract(true); }
   });
   tbl.addEventListener("click", async e => {
+    const tk = e.target.closest("[data-xtake]"), rl = e.target.closest("[data-xrelease]");
+    if (tk || rl) {
+      const id = (tk || rl).dataset.xtake || (tk || rl).dataset.xrelease;
+      try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(id), { assignedTo: tk ? S.uid : "" }); S.xMap.set(r.item.id, r.item); toast(tk ? "It's yours. Others will see you're on it." : "Released"); renderExtract(true); }
+      catch (err) { toast(errMsg(err)); }
+      return;
+    }
     const m = e.target.closest("[data-xmsg]"); if (m) openExtractMessage(m.dataset.xmsg);
     const p = e.target.closest("[data-xlead]");
     if (p) {
@@ -707,6 +731,7 @@ function buildExtract(){
 function paintRunControls(){
   const st = S.xState || {}; const admin = isAdmin();
   $("#xStart").hidden = !admin || !!st.running;
+  $("#xClear").hidden = !admin || !!st.running || !S.xMap.size;
   $("#xStop").hidden = !admin || !st.running;
   $("#xStop").disabled = !!st.stopping; $("#xStop").textContent = st.stopping ? "Stopping…" : "Stop extract";
   $("#xAuto").checked = !st.paused;
@@ -764,6 +789,10 @@ function renderExtract(force){
     st.lastRun?.errors?.length ? `<span class="due-over" title="${esc(st.lastRun.errors.join(" | "))}">Last run had ${st.lastRun.errors.length} source error${st.lastRun.errors.length === 1 ? "" : "s"}</span>` : ""
   ].join("") : "";
   const all = [...S.xMap.values()];
+  const aSel = $("#xAssigned"), opts = [["all", "Anyone"], ["me", "Assigned to me"], ["none", "Unassigned"], ...assigneeOptions()];
+  if (aSel.dataset.sig !== JSON.stringify(opts)) { aSel.innerHTML = opts.map(([v, n]) => `<option value="${esc(v)}">${esc(n)}</option>`).join(""); aSel.dataset.sig = JSON.stringify(opts); }
+  aSel.value = opts.some(o => o[0] === S.xf.assigned) ? S.xf.assigned : "all";
+  $("#xReset").hidden = S.xf.intent === "all" && S.xf.status === "all" && !S.xf.q && S.xf.assigned === "all";
   const cnt = k => k === "all" ? all.length : all.filter(x => x.intent === k).length;
   $("#xIntents").innerHTML = [["all", "All"], ...Object.entries(S.xIntents)].map(([k, n]) => `<button class="fchip" data-xi="${esc(k)}" aria-pressed="${S.xf.intent === k}">${esc(n)}<span class="mono">${cnt(k)}</span></button>`).join("");
   if (S.tab !== "extract" && !force) return;
@@ -771,13 +800,15 @@ function renderExtract(force){
   if (!force && tbl.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") { S.xPending = true; return; }
   S.xPending = false;
   const q = S.xf.q;
+  const af = S.xf.assigned;
   const rows = all.filter(x => (S.xf.intent === "all" || x.intent === S.xf.intent) && (S.xf.status === "all" || (x.status || "new") === S.xf.status))
-    .filter(x => !q || [x.title, x.need, x.personName, x.company, x.location, x.platform, x.remarks].some(v => (v || "").toLowerCase().includes(q)))
+    .filter(x => af === "all" || (af === "me" ? x.assignedTo === S.uid : af === "none" ? !x.assignedTo : x.assignedTo === af))
+    .filter(x => !q || [x.title, x.need, x.personName, x.company, x.location, x.platform, x.remarks, assigneeName(x.assignedTo)].some(v => (v || "").toLowerCase().includes(q)))
     .sort((a, b) => b.addedAt - a.addedAt);
   if (!all.length) { tbl.innerHTML = `<div class="empty"><h3>No records yet</h3><p>Extract searches public posts every 30 minutes and adds new finds here with the date and time.${isAdmin() ? " Admins can press Start extract to run one now." : ""}</p></div>`; return; }
   if (!rows.length) { tbl.innerHTML = `<div class="empty"><h3>No matches</h3><p>Change the filters or clear the search.</p></div>`; return; }
   const ro = !canWrite();
-  tbl.innerHTML = `<table class="xt"><thead><tr><th>Added</th><th>Requirement</th><th>Who &amp; where</th><th>Contact (as posted)</th><th>Source</th><th>Remarks</th><th>Status</th></tr></thead><tbody>` +
+  tbl.innerHTML = `<table class="xt"><thead><tr><th>Added</th><th>Requirement</th><th>Who &amp; where</th><th>Contact (as posted)</th><th>Source</th><th>Assigned to</th><th>Remarks</th><th>Status</th></tr></thead><tbody>` +
     rows.map(x => { const w = fmtWhen(x.addedAt); const src = safeUrl(x.sourceUrl), cu = safeUrl(x.contactUrl);
       return `<tr class="${x.addedAt > S.xSeen ? "fresh" : ""}">
       <td class="when"><b>${esc(w.day)}</b>${esc(w.time)}</td>
@@ -785,9 +816,41 @@ function renderExtract(force){
       <td>${x.personName ? `<div style="font-weight:600">${esc(x.personName)}</div>` : ""}${x.company ? `<div>${esc(x.company)}</div>` : ""}${!x.personName && !x.company ? `<span class="note">Name not stated</span>` : ""}${x.location ? `<div class="note" style="margin-top:4px">${esc(x.location)}</div>` : ""}</td>
       <td><div class="contact">${x.contactEmail ? `<span class="mono" style="font-size:.8rem">${esc(x.contactEmail)}</span>` : ""}${x.contactPhone ? `<span class="mono" style="font-size:.8rem">${esc(x.contactPhone)}</span>` : ""}${cu ? `<a href="${esc(cu)}" target="_blank" rel="noopener noreferrer">Profile / link ↗</a>` : ""}${!x.contactEmail && !x.contactPhone && !cu ? `<span class="note">Reply on the post</span>` : ""}</div></td>
       <td class="src">${src ? `<a href="${esc(src)}" target="_blank" rel="noopener noreferrer">${esc(x.platform || "Open")} ↗</a>` : esc(x.platform)}${x.postedDate ? `<div class="note">Posted ${esc(fmtDate(x.postedDate))}</div>` : ""}</td>
+      <td class="assign">${assignCell(x, ro)}</td>
       <td><label class="sr" for="xr-${esc(x.id)}">Remarks</label><textarea id="xr-${esc(x.id)}" data-xr="${esc(x.id)}" placeholder="Add a note for the team" ${ro ? "readonly" : ""}>${esc(x.remarks || "")}</textarea><div class="saved">${x.remarksBy ? esc("by " + ((S.names[x.remarksBy]?.name) || x.remarksBy.split("@")[0])) : ""}</div></td>
       <td><div class="acts" style="flex-direction:column;align-items:stretch"><label class="sr" for="xs-${esc(x.id)}">Status</label><select id="xs-${esc(x.id)}" data-xs="${esc(x.id)}" ${ro ? "disabled" : ""}>${opt(X_STATUS, x.status || "new")}</select>${ro ? "" : `<button class="btn small primary" data-xmsg="${esc(x.id)}">Write message</button>`}${x.leadId ? `<button class="btn small ghost" data-edit="${esc(x.leadId)}">In pipeline</button>` : ro ? "" : `<button class="btn small" data-xlead="${esc(x.id)}">Add to pipeline</button>`}</div></td>
     </tr>`; }).join("") + `</tbody></table>`;
+}
+function assignCell(x, ro){
+  const who = x.assignedTo;
+  if (isAdmin()) {
+    const opts = assigneeOptions(); if (who && !opts.some(o => o[0] === who)) opts.push([who, assigneeName(who)]);
+    return `<label class="sr" for="xa-${esc(x.id)}">Assigned to</label><select id="xa-${esc(x.id)}" data-xa="${esc(x.id)}"><option value="">Unassigned</option>${opt(opts, who || "")}</select>${!who ? `<button class="btn small ghost" data-xtake="${esc(x.id)}" style="margin-top:6px">Take it</button>` : ""}`;
+  }
+  if (!who) return ro ? `<span class="note">Unassigned</span>` : `<button class="btn small" data-xtake="${esc(x.id)}">Take it</button>`;
+  if (who === S.uid) return `<span class="chip st-replied">You</span>${ro ? "" : `<div><button class="btn small ghost" data-xrelease="${esc(x.id)}" style="margin-top:6px">Release</button></div>`}`;
+  return `<span class="chip st-new">${esc(assigneeName(who))}</span>`;
+}
+function openClearAll(){
+  const n = S.xTotal ?? S.xMap.size;
+  $("#modalRoot").innerHTML = `
+  <div class="scrim" id="scrim"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="clT" style="max-width:480px">
+    <h2 id="clT">Clear all Extract records?</h2>
+    <p>This permanently deletes all <b>${n}</b> records, including their remarks, statuses and assignments, and restarts the search from the beginning. Leads already added to the pipeline are kept.</p>
+    <div class="field"><label for="clIn">Type CLEAR to confirm</label><input type="text" id="clIn" autocomplete="off"></div>
+    <div class="err" id="clErr" role="alert"></div>
+    <div class="mfoot"><button class="btn" data-close type="button">Cancel</button><button class="btn danger" id="clGo" type="button" disabled>Delete ${n} records</button></div>
+  </div></div>`;
+  const close = () => { $("#modalRoot").innerHTML = ""; };
+  $("#scrim").addEventListener("click", e => { if (e.target.id === "scrim" || e.target.closest("[data-close]")) close(); });
+  $("#clIn").focus();
+  $("#clIn").addEventListener("input", e => { $("#clGo").disabled = e.target.value.trim() !== "CLEAR"; });
+  $("#clGo").onclick = async () => {
+    $("#clGo").disabled = true; $("#clGo").textContent = "Deleting…";
+    try { const r = await api("POST", "/api/extracts/clear", { confirm: "CLEAR" }); close(); S.xMap = new Map(); S.xTotal = 0; S.xJustFinished = false;
+      await syncExtracts(true); toast(`Cleared ${r.deleted} records. The next run starts a fresh search.`); }
+    catch (err) { $("#clErr").textContent = errMsg(err); $("#clGo").disabled = false; $("#clGo").textContent = `Delete ${n} records`; }
+  };
 }
 function openExtractMessage(id){
   const x = S.xMap.get(id); if (!x) return;
@@ -841,9 +904,9 @@ function openExtractMessage(id){
 }
 function exportExtractCsv(){
   const cols = [["addedAt","Added"],["intent","Type"],["title","Requirement"],["need","Details"],["budget","Budget"],["personName","Person"],["company","Company"],["location","Location"],
-    ["contactEmail","Email"],["contactPhone","Phone"],["contactUrl","Contact link"],["platform","Platform"],["sourceUrl","Source URL"],["postedDate","Posted"],["status","Status"],["remarks","Remarks"]];
+    ["contactEmail","Email"],["contactPhone","Phone"],["contactUrl","Contact link"],["platform","Platform"],["sourceUrl","Source URL"],["postedDate","Posted"],["assignedTo","Assigned to"],["status","Status"],["remarks","Remarks"]];
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [...S.xMap.values()].sort((a, b) => b.addedAt - a.addedAt).map(x => cols.map(([k]) => q(k === "addedAt" ? new Date(x.addedAt).toLocaleString() : k === "intent" ? (S.xIntents[x.intent] || x.intent) : x[k])).join(","));
+  const rows = [...S.xMap.values()].sort((a, b) => b.addedAt - a.addedAt).map(x => cols.map(([k]) => q(k === "addedAt" ? new Date(x.addedAt).toLocaleString() : k === "intent" ? (S.xIntents[x.intent] || x.intent) : k === "assignedTo" ? (x.assignedTo === S.uid ? (S.me?.name || S.uid) : assigneeName(x.assignedTo)) : x[k])).join(","));
   const csv = "﻿" + [cols.map(c => c[1]).join(","), ...rows].join("\r\n");
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   a.download = `drops-extract-${dstr()}.csv`; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
