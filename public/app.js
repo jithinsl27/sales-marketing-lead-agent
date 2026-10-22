@@ -656,10 +656,12 @@ function markExtractSeen(){ S.xSeen = Date.now(); ls.set("drops.xseen", S.xSeen)
 function paintXBadge(){ if (S.tab === "extract") { $("#xBadge").hidden = true; return; } const n = [...S.xMap.values()].filter(x => x.addedAt > S.xSeen).length; const b = $("#xBadge"); b.hidden = !n || S.tab === "extract"; b.textContent = n; }
 async function syncExtracts(full){
   try {
-    const r = await api("GET", "/api/extracts" + (full || !S.xLast ? "" : "?since=" + (S.xLast - 15000)));
+    let r = await api("GET", "/api/extracts" + (full || !S.xLast ? "" : "?since=" + (S.xLast - 120000)));
+    // Safety net: if the browser holds fewer records than the server has, reload the whole list once.
+    if (!full && S.xLast && typeof r.total === "number" && S.xMap.size + r.items.filter(x => !S.xMap.has(x.id)).length < r.total) { full = true; r = await api("GET", "/api/extracts"); }
     if (full || !S.xLast) S.xMap = new Map();
     for (const x of r.items) S.xMap.set(x.id, x);
-    S.xLast = r.serverTime; S.xState = r.state; if (r.intents) S.xIntents = r.intents;
+    S.xLast = r.serverTime; S.xState = r.state; S.xTotal = r.total; if (r.intents) S.xIntents = r.intents;
     paintXBadge(); renderExtract();
   } catch {}
 }
@@ -703,7 +705,7 @@ function renderExtract(force){
   if (!$("#xTable")) return;
   const st = S.xState;
   $("#xState").innerHTML = st ? [
-    `<span>Total found: <b>${S.xMap.size}</b></span>`,
+    `<span>Total records: <b>${S.xTotal ?? S.xMap.size}</b></span>`,
     st.running ? `<span><b>Running now…</b></span>` : st.lastRun?.finishedAt ? `<span>Last run: <b>${esc(ago(st.lastRun.finishedAt))}</b> · added <b>${st.lastRun.added || 0}</b></span>` : `<span>No runs yet. The first scheduled run starts within 30 minutes of deploying.</span>`,
     st.lastRun?.errors?.length ? `<span class="due-over" title="${esc(st.lastRun.errors.join(" | "))}">Last run had ${st.lastRun.errors.length} source error${st.lastRun.errors.length === 1 ? "" : "s"}</span>` : ""
   ].join("") : "";

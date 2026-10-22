@@ -354,8 +354,8 @@ route("GET", "/api/extracts", async (req, res, body, params, url) => {
   await auth(req);
   const since = Number(url.searchParams.get("since")) || 0;
   const serverTime = now();
-  const [items, state] = await Promise.all([store.listExtracts(since), store.getExtractState()]);
-  return { serverTime, items, state: publicState(state), intents: INTENTS };
+  const [items, state, total] = await Promise.all([store.listExtracts(since), store.getExtractState(), store.countExtracts()]);
+  return { serverTime, items, total, state: publicState(state), intents: INTENTS };
 });
 const EX_STATUS = ["new", "contacted", "interested", "not_relevant"];
 route("PATCH", "/api/extracts/:id", async (req, res, body, { id }) => {

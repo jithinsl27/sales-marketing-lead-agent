@@ -127,9 +127,9 @@ export async function runExtract({ store, ai, trigger }) {
     }
     const unique = [...new Map(candidates.map(c => [c.id, c])).values()];
     report.seen = unique.length;
-    const now = Date.now();
     for (const c of unique) {
-      const created = await store.createExtractIfNew(c.id, { ...c, addedAt: now, updatedAt: now, remarks: "", status: "new" });
+      const ts = Date.now(); // stamped at write time so browsers that sync mid-run still pick every record up
+      const created = await store.createExtractIfNew(c.id, { ...c, addedAt: ts, updatedAt: ts, remarks: "", status: "new" });
       if (created) { report.added++; report.bySource[c.source] = (report.bySource[c.source] || 0) + 1; }
     }
   } finally {

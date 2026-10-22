@@ -33,6 +33,7 @@ export async function createStore() {
       return (await q.get()).docs.map(withId);
     },
     async getExtract(id) { const s = await extracts.doc(id).get(); return s.exists ? withId(s) : null; },
+    async countExtracts() { return (await extracts.count().get()).data().count; },
     async updateExtract(id, patch) { await extracts.doc(id).set(patch, { merge: true }); return this.getExtract(id); },
     async createExtractIfNew(id, data) {
       try { await extracts.doc(id).create(data); return true; }
@@ -68,6 +69,7 @@ function memoryStore() {
     async setConfig(c) { cfg = clone(c); },
     async listExtracts(since) { return [...ex.values()].filter(x => !since || x.updatedAt > since).sort((a, b) => b.addedAt - a.addedAt).map(clone); },
     async getExtract(id) { return clone(ex.get(id) || null); },
+    async countExtracts() { return ex.size; },
     async updateExtract(id, patch) { ex.set(id, { ...ex.get(id), ...clone(patch) }); return clone(ex.get(id)); },
     async createExtractIfNew(id, data) { if (ex.has(id)) return false; ex.set(id, { id, ...clone(data) }); return true; },
     async getExtractState() { return clone(xstate); },
