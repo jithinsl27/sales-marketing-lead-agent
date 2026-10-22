@@ -267,3 +267,6 @@ body .wrap{max-width:1240px}
 #xEmpty .empty{border-top:1px solid var(--line)}
 .val{font-family:var(--f-mono);font-size:.78rem;color:var(--good)}
 #p-extract select.on,#p-extract input.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.xt tr.closed td{opacity:.6}
+.xt tr.closed td:last-child{opacity:1}
+.btn.ghost.danger{color:var(--bad)}

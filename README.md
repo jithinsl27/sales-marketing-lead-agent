@@ -34,6 +34,10 @@ It runs on **Google Cloud Run**, stores data in **Firestore**, uses **Gemini 3.8
     - **Assigned to**, **Remarks** (has / none) and **Status**.
   - Above the table: **Country** (worked out from the post's location) and **Value (USD)**, a min–max range on the stated budget converted at approximate rates.
   - **Clear all** resets every filter and the search. It never deletes records.
+- **Closing and deleting:**
+  - **Close** marks a record as done. Closed records are hidden by default; set the Status filter to *Closed* or *All* to see them, and **Reopen** brings one back.
+  - **Delete** (click twice to confirm) removes a record for everyone, and later runs won't add the same post again.
+  - Members can delete records that are unassigned or assigned to themselves. Admins can delete any record.
 - **Two sources:**
   - **Gemini with Google Search grounding:** searches LinkedIn posts first (`site:linkedin.com/posts`, pages Google has indexed), then Reddit, X, Facebook and Quora.
   - **Freelancer.com's public projects feed.**

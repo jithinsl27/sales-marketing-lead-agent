@@ -29,11 +29,15 @@ export async function createStore() {
     async setConfig(cfg) { await cfgDoc.set(cfg); },
     // ---- Extract ----
     async listExtracts(since) {
-      const q = since ? extracts.where("updatedAt", ">", since) : extracts.orderBy("addedAt", "desc").limit(2000);
-      return (await q.get()).docs.map(withId);
+      const q = since ? extracts.where("updatedAt", ">", since) : extracts.orderBy("addedAt", "desc").limit(3000);
+      const rows = (await q.get()).docs.map(withId);
+      return since ? rows : rows.filter(x => !x.deleted).slice(0, 2000);
     },
     async getExtract(id) { const s = await extracts.doc(id).get(); return s.exists ? withId(s) : null; },
-    async countExtracts() { return (await extracts.count().get()).data().count; },
+    async countExtracts() {
+      const [all, del] = await Promise.all([extracts.count().get(), extracts.where("deleted", "==", true).count().get()]);
+      return all.data().count - del.data().count;
+    },
     async updateExtract(id, patch) { await extracts.doc(id).set(patch, { merge: true }); return this.getExtract(id); },
     async createExtractIfNew(id, data) {
       try { await extracts.doc(id).create(data); return true; }
@@ -67,9 +71,9 @@ function memoryStore() {
     async updateLead(id, patch) { leads.set(id, { ...leads.get(id), ...clone(patch) }); return clone(leads.get(id)); },
     async getConfig() { return clone(cfg); },
     async setConfig(c) { cfg = clone(c); },
-    async listExtracts(since) { return [...ex.values()].filter(x => !since || x.updatedAt > since).sort((a, b) => b.addedAt - a.addedAt).map(clone); },
+    async listExtracts(since) { return [...ex.values()].filter(x => since ? x.updatedAt > since : !x.deleted).sort((a, b) => b.addedAt - a.addedAt).map(clone); },
     async getExtract(id) { return clone(ex.get(id) || null); },
-    async countExtracts() { return ex.size; },
+    async countExtracts() { return [...ex.values()].filter(x => !x.deleted).length; },
     async updateExtract(id, patch) { ex.set(id, { ...ex.get(id), ...clone(patch) }); return clone(ex.get(id)); },
     async createExtractIfNew(id, data) { if (ex.has(id)) return false; ex.set(id, { id, ...clone(data) }); return true; },
     async getExtractState() { return clone(xstate); },

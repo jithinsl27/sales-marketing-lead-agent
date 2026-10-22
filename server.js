@@ -403,13 +403,14 @@ route("GET", "/api/extracts", async (req, res, body, params, url) => {
   const [items, state, total] = await Promise.all([store.listExtracts(since), store.getExtractState(), store.countExtracts()]);
   return { serverTime, items, total, state: publicState(state), intents: INTENTS };
 });
-const EX_STATUS = ["new", "contacted", "interested", "not_relevant"];
+const EX_STATUS = ["new", "contacted", "interested", "not_relevant", "closed"];
 route("PATCH", "/api/extracts/:id", async (req, res, body, { id }) => {
   const u = await auth(req, ["admin", "member"]);
-  const x = await store.getExtract(id); if (!x) throw new HttpError(404, "Record not found.");
+  const x = await store.getExtract(id); if (!x || x.deleted) throw new HttpError(404, "Record not found.");
   const patch = { updatedAt: now() };
   if ("remarks" in body) { patch.remarks = str(body.remarks, 4000); patch.remarksBy = u.email; patch.remarksAt = now(); }
-  if ("status" in body) { if (!EX_STATUS.includes(body.status)) throw new HttpError(400, "Unknown status."); patch.status = body.status; }
+  if ("status" in body) { if (!EX_STATUS.includes(body.status)) throw new HttpError(400, "Unknown status."); patch.status = body.status;
+    if (body.status === "closed") { patch.closedBy = u.email; patch.closedAt = now(); } }
   if ("assignedTo" in body) {
     const to = str(String(body.assignedTo || ""), 260).toLowerCase().startsWith("name:") ? "name:" + str(String(body.assignedTo).slice(5), 60) : str(String(body.assignedTo || ""), 254).toLowerCase();
     if (u.role !== "admin") {
@@ -426,6 +427,14 @@ route("PATCH", "/api/extracts/:id", async (req, res, body, { id }) => {
     patch.assignedBy = u.email; patch.assignedAt = now();
   }
   return { item: await store.updateExtract(id, patch) };
+});
+// Delete hides the record for everyone. The record is kept as a marker so later runs don't add the same post again.
+route("DELETE", "/api/extracts/:id", async (req, res, body, { id }) => {
+  const u = await auth(req, ["admin", "member"]);
+  const x = await store.getExtract(id); if (!x || x.deleted) throw new HttpError(404, "Record not found.");
+  if (u.role !== "admin" && x.assignedTo && x.assignedTo !== u.email) throw new HttpError(403, "This record is assigned to someone else. Ask them or an admin to delete it.");
+  await store.updateExtract(id, { deleted: true, deletedBy: u.email, deletedAt: now(), updatedAt: now() });
+  return { ok: true };
 });
 route("POST", "/api/extracts/:id/to-pipeline", async (req, res, body, { id }) => {
   const u = await auth(req, ["admin", "member"]);

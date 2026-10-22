@@ -651,7 +651,7 @@ function buildFindProductButtons(){
 }
 
 /* ---------- EXTRACT ---------- */
-const X_FILTERS_EMPTY = { intent: "all", q: "", country: "all", vmin: "", vmax: "", added: "all", req: "", who: "", contact: "all", source: "all", assigned: "all", remarks: "all", status: "all" };
+const X_FILTERS_EMPTY = { intent: "all", q: "", country: "all", vmin: "", vmax: "", added: "all", req: "", who: "", contact: "all", source: "all", assigned: "all", remarks: "all", status: "open" };
 // Approximate USD rates, only for the value filter. Edit if you need different rates.
 const USD_RATES = { USD: 1, INR: 0.012, AED: 0.272, SAR: 0.267, QAR: 0.275, OMR: 2.6, BHD: 2.65, KWD: 3.25, EUR: 1.08, GBP: 1.27, AUD: 0.66, CAD: 0.73, SGD: 0.74, PKR: 0.0036, BDT: 0.0083, LKR: 0.0033, NPR: 0.0075, ZAR: 0.055, MYR: 0.22, NZD: 0.6 };
 function parseValueUsd(text){
@@ -687,7 +687,7 @@ const xCountry = x => {
   const last = raw.split(",").map(s => s.trim()).filter(Boolean).pop() || "";
   return last ? last.replace(/\b\w/g, c => c.toUpperCase()) : "Not stated";
 };
-const X_STATUS = [["new","New"],["contacted","Contacted"],["interested","Interested"],["not_relevant","Not relevant"]];
+const X_STATUS = [["new","New"],["contacted","Contacted"],["interested","Interested"],["not_relevant","Not relevant"],["closed","Closed"]];
 const X_CH = [["dm","Direct message"],["reply","Reply to post"],["email","Email"],["proposal","Proposal / bid"]];
 Object.assign(S, { xMap: new Map(), xLast: 0, xIntents: { build: "Freelance build", hr: "Needs HR software", crm: "Needs a CRM", finance: "Needs finance software" },
   xState: null, xf: { ...X_FILTERS_EMPTY }, xSeen: ls.get("drops.xseen", 0), xPending: false });
@@ -708,7 +708,7 @@ async function syncExtracts(full){
     // Safety net: if the browser holds fewer records than the server has, reload the whole list once.
     if (!full && S.xLast && typeof r.total === "number" && S.xMap.size + r.items.filter(x => !S.xMap.has(x.id)).length !== r.total) { full = true; r = await api("GET", "/api/extracts"); }
     if (full || !S.xLast) S.xMap = new Map();
-    for (const x of r.items) S.xMap.set(x.id, x);
+    for (const x of r.items) { if (x.deleted) S.xMap.delete(x.id); else S.xMap.set(x.id, x); }
     S.xLast = r.serverTime; S.xState = r.state; S.xTotal = r.total; if (r.intents) S.xIntents = r.intents;
     paintXBadge(); renderExtract();
   } catch {}
@@ -728,7 +728,7 @@ function buildExtract(){
   $("#xReset").addEventListener("click", () => {
     S.xf = { ...X_FILTERS_EMPTY };
     ["#xSearch", "#xVmin", "#xVmax"].forEach(s => $(s).value = "");
-    $$("#xHead [data-f]").forEach(el => { el.value = el.tagName === "SELECT" ? "all" : ""; });
+    $$("#xHead [data-f]").forEach(el => { el.value = X_FILTERS_EMPTY[el.dataset.f] ?? ""; });
     renderExtract(true); toast("All filters cleared");
   });
   $("#xStop").addEventListener("click", stopExtract);
@@ -761,6 +761,21 @@ function buildExtract(){
     if (tk || rl) {
       const id = (tk || rl).dataset.xtake || (tk || rl).dataset.xrelease;
       try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(id), { assignedTo: tk ? S.uid : "" }); S.xMap.set(r.item.id, r.item); toast(tk ? "It's yours. Others will see you're on it." : "Released"); renderExtract(true); }
+      catch (err) { toast(errMsg(err)); }
+      return;
+    }
+    const cl = e.target.closest("[data-xclose]");
+    if (cl) {
+      const x = S.xMap.get(cl.dataset.xclose); const to = x?.status === "closed" ? "new" : "closed";
+      try { const r = await api("PATCH", "/api/extracts/" + encodeURIComponent(cl.dataset.xclose), { status: to }); S.xMap.set(r.item.id, r.item);
+        toast(to === "closed" ? (S.xf.status === "open" ? "Closed. It's hidden now; set Status to Closed to see it." : "Closed") : "Reopened"); renderExtract(true); }
+      catch (err) { toast(errMsg(err)); }
+      return;
+    }
+    const dl = e.target.closest("[data-xdel]");
+    if (dl) {
+      if (dl.dataset.armed !== "1") { dl.dataset.armed = "1"; dl.textContent = "Confirm delete"; setTimeout(() => { if (dl.isConnected) { dl.dataset.armed = ""; dl.textContent = "Delete"; } }, 4000); return; }
+      try { await api("DELETE", "/api/extracts/" + encodeURIComponent(dl.dataset.xdel)); S.xMap.delete(dl.dataset.xdel); S.xTotal = Math.max(0, (S.xTotal || 1) - 1); toast("Deleted"); renderExtract(true); }
       catch (err) { toast(errMsg(err)); }
       return;
     }
@@ -842,7 +857,7 @@ function renderExtract(force){
   $("#xfAssigned").dataset.cur = f.assigned; setOpts("#xfAssigned", [["all", "Anyone"], ["me", "Me"], ["none", "Unassigned"], ...assigneeOptions().map(([v, n]) => [v, n.replace(/ \(you\)$/, "")])]);
   $$("#xHead [data-f], #xCountry, #xVmin, #xVmax").forEach(el => {
     const k = el.dataset.f || { xCountry: "country", xVmin: "vmin", xVmax: "vmax" }[el.id];
-    el.classList.toggle("on", !!f[k] && f[k] !== "all");
+    el.classList.toggle("on", !!f[k] && f[k] !== X_FILTERS_EMPTY[k]);
   });
   const filtered = JSON.stringify(f) !== JSON.stringify(X_FILTERS_EMPTY);
   $("#xReset").disabled = !filtered;
@@ -867,7 +882,7 @@ function renderExtract(force){
       && (f.source === "all" || (x.platform || "Other") === f.source)
       && (f.assigned === "all" || (f.assigned === "me" ? x.assignedTo === S.uid : f.assigned === "none" ? !x.assignedTo : x.assignedTo === f.assigned))
       && (f.remarks === "all" || (f.remarks === "has" ? !!(x.remarks || "").trim() : !(x.remarks || "").trim()))
-      && (f.status === "all" || (x.status || "new") === f.status))
+      && (f.status === "all" || (f.status === "open" ? x.status !== "closed" : (x.status || "new") === f.status)))
     .sort((a, b) => b.addedAt - a.addedAt);
   $("#xShowing").textContent = all.length ? (filtered ? `Showing ${rows.length} of ${all.length}` : `${all.length} records`) : "";
   const empty = $("#xEmpty");
@@ -876,7 +891,7 @@ function renderExtract(force){
   empty.hidden = true;
   const ro = !canWrite();
   body.innerHTML = rows.map(x => { const w = fmtWhen(x.addedAt); const src = safeUrl(x.sourceUrl), cu = safeUrl(x.contactUrl); const v = valueUsd(x);
-      return `<tr class="${x.addedAt > S.xSeen ? "fresh" : ""}">
+      return `<tr class="${x.addedAt > S.xSeen ? "fresh" : ""} ${x.status === "closed" ? "closed" : ""}">
       <td class="when"><b>${esc(w.day)}</b>${esc(w.time)}</td>
       <td class="need"><span class="chip i-${esc(x.intent)}">${esc(S.xIntents[x.intent] || x.intent)}</span><div class="t" dir="auto" style="margin-top:6px">${esc(x.title)}</div>${x.need ? `<p dir="auto">${esc(x.need)}</p>` : ""}${x.budget ? `<p>Budget: ${esc(x.budget)}${v !== null ? ` <span class="val">≈ $${v.toLocaleString()}</span>` : ""}</p>` : ""}</td>
       <td>${x.personName ? `<div style="font-weight:600">${esc(x.personName)}</div>` : ""}${x.company ? `<div>${esc(x.company)}</div>` : ""}${!x.personName && !x.company ? `<span class="note">Name not stated</span>` : ""}<div class="note" style="margin-top:4px">${esc([x.location, xCountry(x) !== "Not stated" && !(x.location || "").toLowerCase().includes(xCountry(x).toLowerCase()) ? xCountry(x) : ""].filter(Boolean).join(" · ") || "Location not stated")}</div></td>
@@ -884,7 +899,7 @@ function renderExtract(force){
       <td class="src">${src ? `<a href="${esc(src)}" target="_blank" rel="noopener noreferrer">${esc(x.platform || "Open")} ↗</a>` : esc(x.platform)}${x.postedDate ? `<div class="note">Posted ${esc(fmtDate(x.postedDate))}</div>` : ""}</td>
       <td class="assign">${assignCell(x, ro)}</td>
       <td><label class="sr" for="xr-${esc(x.id)}">Remarks</label><textarea id="xr-${esc(x.id)}" data-xr="${esc(x.id)}" placeholder="Add a note for the team" ${ro ? "readonly" : ""}>${esc(x.remarks || "")}</textarea><div class="saved">${x.remarksBy ? esc("by " + ((S.names[x.remarksBy]?.name) || x.remarksBy.split("@")[0])) : ""}</div></td>
-      <td><div class="acts" style="flex-direction:column;align-items:stretch"><label class="sr" for="xs-${esc(x.id)}">Status</label><select id="xs-${esc(x.id)}" data-xs="${esc(x.id)}" ${ro ? "disabled" : ""}>${opt(X_STATUS, x.status || "new")}</select>${ro ? "" : `<button class="btn small primary" data-xmsg="${esc(x.id)}">Write message</button>`}${x.leadId ? `<button class="btn small ghost" data-edit="${esc(x.leadId)}">In pipeline</button>` : ro ? "" : `<button class="btn small" data-xlead="${esc(x.id)}">Add to pipeline</button>`}</div></td>
+      <td><div class="acts" style="flex-direction:column;align-items:stretch"><label class="sr" for="xs-${esc(x.id)}">Status</label><select id="xs-${esc(x.id)}" data-xs="${esc(x.id)}" ${ro ? "disabled" : ""}>${opt(X_STATUS, x.status || "new")}</select>${ro ? "" : `<button class="btn small primary" data-xmsg="${esc(x.id)}">Write message</button>`}${x.leadId ? `<button class="btn small ghost" data-edit="${esc(x.leadId)}">In pipeline</button>` : ro ? "" : `<button class="btn small" data-xlead="${esc(x.id)}">Add to pipeline</button>`}${ro ? "" : `<div class="row" style="gap:4px;justify-content:space-between"><button class="btn small ghost" data-xclose="${esc(x.id)}">${x.status === "closed" ? "Reopen" : "Close"}</button><button class="btn small ghost danger" data-xdel="${esc(x.id)}">Delete</button></div>`}</div></td>
     </tr>`; }).join("");
 }
 function buildExtractHead(){
@@ -899,7 +914,7 @@ function buildExtractHead(){
     <th><label class="sr" for="xfSource">Filter source</label><select id="xfSource" data-f="source"></select></th>
     <th><label class="sr" for="xfAssigned">Filter assigned to</label><select id="xfAssigned" data-f="assigned"></select></th>
     <th>${sel("remarks", "remarks", [["all", "Any"], ["has", "Has remarks"], ["none", "No remarks"]])}</th>
-    <th>${sel("status", "status", [["all", "All"], ...X_STATUS])}</th>
+    <th>${sel("status", "status", [["open", "Open (hide closed)"], ["all", "All, incl. closed"], ...X_STATUS])}</th>
   </tr>`;
 }
 function assignCell(x, ro){
