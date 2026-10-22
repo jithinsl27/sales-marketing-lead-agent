@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Coolgen Lead Desk</title>
+<meta name="description" content="Coolgen's daily sales desk: find, qualify and contact SMB leads.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@600;700&display=swap">
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div id="boot" class="auth gutter"><div class="thinking"><span class="spin"></span>Loading…</div></div>
+
+<div id="authView" class="auth gutter" hidden>
+  <div class="auth-card">
+    <div class="brand"><div class="mark" aria-hidden="true">c</div><div class="wordmark">coolgen <span>Lead Desk</span></div></div>
+    <div><h1 id="authTitle" style="font-size:1.35rem">Sign in</h1><p class="note" id="authSub"></p></div>
+    <div id="gsiWrap" hidden><div id="gsiBtn"></div><div class="divider" style="margin-top:14px">or use a password</div></div>
+    <form id="loginForm" novalidate>
+      <div class="field"><label for="liEmail">Email</label><input type="email" id="liEmail" autocomplete="username" required></div>
+      <div class="field"><label for="liPw">Password</label><input type="password" id="liPw" autocomplete="current-password" required></div>
+      <div class="err" id="liErr" role="alert"></div>
+      <button class="btn primary" type="submit">Sign in</button>
+      <p class="note">New to the team? <button type="button" class="linkbtn" data-auth="signup">Request access</button></p>
+    </form>
+    <form id="signupForm" novalidate hidden>
+      <div class="field"><label for="suName">Your name</label><input type="text" id="suName" autocomplete="name" required></div>
+      <div class="field"><label for="suEmail">Email</label><input type="email" id="suEmail" autocomplete="email" required></div>
+      <div class="field"><label for="suPw">Password</label><input type="password" id="suPw" autocomplete="new-password" placeholder="At least 10 characters" required></div>
+      <details><summary class="note" style="cursor:pointer">I'm the first admin</summary><div class="field" style="margin-top:8px"><label for="suCode">Admin setup code</label><input type="text" id="suCode" autocomplete="off"></div></details>
+      <div class="err" id="suErr" role="alert"></div>
+      <button class="btn primary" type="submit">Request access</button>
+      <p class="note">Already have an account? <button type="button" class="linkbtn" data-auth="login">Sign in</button></p>
+    </form>
+    <div id="pendingView" hidden class="empty" style="padding:8px 0">
+      <h3>Request sent</h3><p>An admin needs to approve your account. Sign in again once they tell you it's ready.</p>
+      <button type="button" class="btn" data-auth="login">Back to sign in</button>
+    </div>
+  </div>
+</div>
+
+<div id="appView" hidden>
+<header class="top">
+  <div class="wrap gutter">
+    <div class="top-row">
+      <div class="brand"><div class="mark" aria-hidden="true">c</div><div class="wordmark">coolgen <span>Lead Desk</span></div></div>
+      <div class="me menu" id="me"><button class="btn ghost small" id="meBtn" aria-haspopup="true" aria-expanded="false"><span class="me-name" id="meName"></span><span id="meAvatar"></span></button><div class="menu-pop" id="mePop" hidden><button type="button" data-go="products">My details &amp; password</button><button type="button" id="signOut">Sign out</button></div></div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" data-tab="today">Today<span class="n" id="dueBadge" hidden></span></button>
+      <button class="tab" role="tab" data-tab="find">Find leads</button>
+      <button class="tab" role="tab" data-tab="qualify">Qualify</button>
+      <button class="tab" role="tab" data-tab="write">Write outreach</button>
+      <button class="tab" role="tab" data-tab="pipeline">Pipeline</button>
+      <button class="tab" role="tab" data-tab="products">Products &amp; me</button>
+      <button class="tab" role="tab" data-tab="team" id="teamTab" hidden>Team<span class="n" id="pendingBadge" hidden></span></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap gutter">
+  <div id="globalBanner" hidden></div>
+
+  <!-- TODAY -->
+  <section class="panel" id="p-today" hidden>
+    <div class="head">
+      <div><div class="eyebrow" id="todayDate"></div><h1 id="greet">Today</h1></div>
+      <div class="row"><button class="btn" data-go="find">Find new leads</button><button class="btn primary" data-add>Add a lead</button></div>
+    </div>
+    <div id="todayBody"></div>
+  </section>
+
+  <!-- FIND -->
+  <section class="panel" id="p-find" hidden>
+    <div class="head"><div><h1>Find leads</h1><p>Pick a product, city and industry. Each card is a search that surfaces companies showing a buying signal right now. Open it, spot a good company, then log it.</p></div></div>
+    <div class="card">
+      <div class="row">
+        <div class="field" style="flex:0 1 auto"><span class="lbl" id="fpl">Product</span><div class="seg" role="group" aria-labelledby="fpl" id="fProduct"></div></div>
+        <div class="field"><label for="fCity">City</label><select id="fCity"></select></div>
+        <div class="field"><label for="fInd">Industry</label><select id="fInd"></select></div>
+      </div>
+    </div>
+    <div class="sigs" id="sigs"></div>
+  </section>
+
+  <!-- QUALIFY -->
+  <section class="panel" id="p-qualify" hidden>
+    <div class="head"><div><h1>Qualify a company</h1><p>Paste what you found: their About page, a job post, a LinkedIn summary or your call notes. The AI scores the fit for each product and prepares your opening line and discovery questions.</p></div></div>
+    <div class="grid2">
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div class="field"><label for="qLead">Company from pipeline</label><select id="qLead"></select></div>
+        <div class="row">
+          <div class="field"><label for="qCompany">Company name</label><input type="text" id="qCompany" placeholder="e.g. Sharma Auto Components"></div>
+          <div class="field"><label for="qCity">City / country</label><input type="text" id="qCity" placeholder="e.g. Pune, India"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="qInd">Industry</label><input type="text" id="qInd" placeholder="e.g. Auto parts manufacturing"></div>
+          <div class="field"><label for="qSize">Employees</label><select id="qSize"></select></div>
+        </div>
+        <div class="field"><label for="qText">What you know about them</label><textarea id="qText" rows="8" placeholder="Paste their website About section, a job post, LinkedIn description or notes from a call."></textarea></div>
+        <div class="row"><button class="btn primary" id="qGo">Qualify with AI</button><button class="btn ghost" id="qStop" hidden>Stop</button></div>
+      </div>
+      <div class="card" id="qOut"></div>
+    </div>
+  </section>
+
+  <!-- WRITE -->
+  <section class="panel" id="p-write" hidden>
+    <div class="head"><div><h1>Write outreach</h1><p>Choose a lead and a channel. Drafts use the lead's notes and qualification brief, your product details and your signature. Always read before you send.</p></div></div>
+    <div class="grid2">
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div class="field"><label for="wLead">Lead</label><select id="wLead"></select></div>
+        <div class="field"><span class="lbl" id="wcl">Channel</span><div class="seg" role="group" aria-labelledby="wcl" id="wChannel"></div></div>
+        <div class="row">
+          <div class="field"><label for="wLang">Language</label><select id="wLang">
+            <option value="English">English</option><option value="Hindi">Hindi</option><option value="Hinglish">Hinglish</option><option value="Arabic">Arabic</option><option value="Tamil">Tamil</option><option value="Telugu">Telugu</option><option value="Malayalam">Malayalam</option></select></div>
+          <div class="field"><label for="wTone">Tone</label><select id="wTone"><option>Friendly and direct</option><option>Formal and respectful</option><option>Short and casual</option></select></div>
+          <div class="field"><label for="wProd">Pitch</label><select id="wProd"><option value="auto">Best fit</option></select></div>
+        </div>
+        <div class="field"><label for="wExtra" id="wExtraLbl">Anything to include</label><textarea id="wExtra" rows="3" placeholder="e.g. Met them at the Pune MSME expo. Mention we can do a demo in Marathi."></textarea></div>
+        <div class="row"><button class="btn primary" id="wGo">Write draft</button><button class="btn ghost" id="wStop" hidden>Stop</button></div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div class="mhead"><h2>Draft</h2><div class="acts"><button class="btn small" id="wCopy" disabled>Copy</button><button class="btn small" id="wAgain" disabled>Try another</button></div></div>
+        <div class="out" id="wOut" dir="auto"></div>
+        <div id="wAfter" hidden class="row"><button class="btn small primary" id="wLogged">Mark as contacted · follow up in 3 days</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section class="panel" id="p-pipeline" hidden>
+    <div class="head">
+      <div><h1>Pipeline</h1><p id="pipeSub">Every company your team is working, in one shared list.</p></div>
+      <div class="row"><button class="btn" id="exportCsv" hidden>Export CSV</button><button class="btn primary" data-add>Add a lead</button></div>
+    </div>
+    <div class="filters">
+      <div class="field" style="flex:1 1 220px;max-width:320px"><label class="sr" for="pSearch">Search</label><input type="search" id="pSearch" placeholder="Search company, city, contact"></div>
+      <button class="fchip" id="pMine" aria-pressed="false">My leads</button>
+      <span id="pStages" class="filters"></span>
+    </div>
+    <div class="card pipe" id="pipeList"></div>
+  </section>
+
+  <!-- PRODUCTS -->
+  <section class="panel" id="p-products" hidden>
+    <div class="head"><div><h1>Products &amp; me</h1><p>The AI uses these descriptions when it qualifies leads and writes messages. Keep them accurate. Only admins can change product details; everyone sets their own signature.</p></div></div>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <h2>My signature</h2>
+      <div class="fgrid">
+        <div class="field"><label for="myName">Name</label><input type="text" id="myName"></div>
+        <div class="field"><label for="myTitle">Title</label><input type="text" id="myTitle" placeholder="e.g. Business Development Manager"></div>
+        <div class="field"><label for="myPhone">Phone / WhatsApp</label><input type="tel" id="myPhone" placeholder="+91 98xxx xxxxx"></div>
+        <div class="field"><label for="myLink">Demo booking link</label><input type="url" id="myLink" placeholder="https://calendly.com/…"></div>
+      </div>
+      <div class="row"><button class="btn primary" id="mySave">Save my details</button></div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px" id="pwCard">
+      <h2>Password</h2>
+      <div id="pwForce" class="banner" hidden>An admin reset your password. Choose a new one now.</div>
+      <div class="fgrid">
+        <div class="field" id="pwCurWrap"><label for="pwCur">Current password</label><input type="password" id="pwCur" autocomplete="current-password"></div>
+        <div class="field"><label for="pwNew">New password</label><input type="password" id="pwNew" autocomplete="new-password" placeholder="At least 10 characters"></div>
+      </div>
+      <div class="row"><button class="btn" id="pwSave">Change password</button><span id="pwMsg" class="note"></span></div>
+    </div>
+    <div id="prodBody" class="grid2"></div>
+  </section>
+
+  <!-- TEAM (admins) -->
+  <section class="panel" id="p-team" hidden>
+    <div class="head"><div><h1>Team</h1><p>Approve people who asked to join, set roles and reset passwords. Members add and work leads, viewers can only look, admins also manage products and the team.</p></div></div>
+    <div class="banner">Password sign-ups aren't email-verified. Approve only people you know, and check with them if you're unsure.</div>
+    <div class="card pipe" id="teamList"></div>
+  </section>
+</main>
+
+</div>
+<div id="modalRoot"></div>
+<div id="toastRoot" aria-live="polite"></div>
+</body>
+</html>
