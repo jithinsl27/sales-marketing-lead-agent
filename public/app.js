@@ -651,7 +651,7 @@ function buildFindProductButtons(){
 }
 
 /* ---------- EXTRACT ---------- */
-const X_FILTERS_EMPTY = { intent: "all", q: "", country: "all", vmin: "", vmax: "", added: "all", req: "", who: "", contact: "all", source: "all", assigned: "all", remarks: "all", status: "open" };
+const X_FILTERS_EMPTY = { intent: "all", q: "", country: "all", vmin: "", vmax: "", added: "all", from: "", to: "", req: "", who: "", contact: "all", source: "all", assigned: "all", remarks: "all", status: "open" };
 // Approximate USD rates, only for the value filter. Edit if you need different rates.
 const USD_RATES = { USD: 1, INR: 0.012, AED: 0.272, SAR: 0.267, QAR: 0.275, OMR: 2.6, BHD: 2.65, KWD: 3.25, EUR: 1.08, GBP: 1.27, AUD: 0.66, CAD: 0.73, SGD: 0.74, PKR: 0.0036, BDT: 0.0083, LKR: 0.0033, NPR: 0.0075, ZAR: 0.055, MYR: 0.22, NZD: 0.6 };
 function parseValueUsd(text){
@@ -669,7 +669,7 @@ function parseValueUsd(text){
 }
 const valueUsd = x => typeof x.valueUsd === "number" ? x.valueUsd : parseValueUsd(x.budget);
 const COUNTRY_ALIASES = [
-  [/\b(india|bharat|bengaluru|bangalore|mumbai|pune|delhi|ncr|noida|gurgaon|gurugram|hyderabad|chennai|kolkata|ahmedabad|kochi|cochin|coimbatore|jaipur|indore|surat|lucknow|chandigarh|trivandrum|thiruvananthapuram|nagpur|vadodara|ludhiana|mysore|vizag|visakhapatnam)\b/i, "India"],
+  [/\b(india|bharat|bengaluru|bangalore|mumbai|pune|delhi|ncr|noida|gurgaon|gurugram|hyderabad|chennai|kolkata|ahmedabad|kochi|cochin|coimbatore|jaipur|indore|surat|lucknow|chandigarh|trivandrum|thiruvananthapuram|nagpur|vadodara|ludhiana|mysore|vizag|visakhapatnam|madurai|trichy|tiruchirappalli|salem|tirupur|erode|vellore|tamil ?nadu|kerala|karnataka|maharashtra|telangana|andhra|gujarat|rajasthan|punjab|haryana|uttar pradesh|west bengal|odisha|bihar|madhya pradesh|goa)\b/i, "India"],
   [/\b(uae|u\.a\.e|united arab emirates|dubai|abu dhabi|sharjah|ajman|ras al khaimah|fujairah)\b/i, "UAE"],
   [/\b(ksa|saudi|riyadh|jeddah|dammam|khobar|mecca|makkah|medina|madinah)\b/i, "Saudi Arabia"],
   [/\b(qatar|doha)\b/i, "Qatar"], [/\b(oman|muscat)\b/i, "Oman"], [/\b(bahrain|manama)\b/i, "Bahrain"], [/\b(kuwait)\b/i, "Kuwait"],
@@ -725,9 +725,12 @@ function buildExtract(){
   $("#xIntents").addEventListener("click", e => { const b = e.target.closest("[data-xi]"); if (b) { S.xf.intent = b.dataset.xi; renderExtract(true); } });
   $("#xExport").addEventListener("click", exportExtractCsv);
   $("#xStart").addEventListener("click", startExtract);
+  $("#xFrom").addEventListener("change", e => { S.xf.from = e.target.value; renderExtract(true); });
+  $("#xTo").addEventListener("change", e => { S.xf.to = e.target.value; renderExtract(true); });
+  document.addEventListener("click", e => { if (e.target.closest("[data-xlatest]")) showLatestRun(); });
   $("#xReset").addEventListener("click", () => {
     S.xf = { ...X_FILTERS_EMPTY };
-    ["#xSearch", "#xVmin", "#xVmax"].forEach(s => $(s).value = "");
+    ["#xSearch", "#xVmin", "#xVmax", "#xFrom", "#xTo"].forEach(s => $(s).value = "");
     $$("#xHead [data-f]").forEach(el => { el.value = X_FILTERS_EMPTY[el.dataset.f] ?? ""; });
     renderExtract(true); toast("All filters cleared");
   });
@@ -802,9 +805,9 @@ function paintRunControls(){
     box.querySelector(".meta").textContent = `Started ${ago(st.runningSince || Date.now())} · ${st.progress?.added || 0} new so far`;
   } else if (S.xJustFinished) {
     const r = st.lastRun || {}; box.hidden = false; box.className = "runbox " + (r.cancelled ? "stopped" : "done");
-    box.innerHTML = `<span class="phase"></span><span class="meta"></span><button class="btn small ghost" type="button" id="xDismiss">Dismiss</button>`;
+    box.innerHTML = `<span class="phase"></span><span class="meta"></span>${r.added ? `<button class="btn small primary" type="button" data-xlatest>Show new records</button>` : ""}<button class="btn small ghost" type="button" id="xDismiss">Dismiss</button>`;
     box.querySelector(".phase").textContent = r.cancelled ? `Extract stopped: ${r.added || 0} new record${r.added === 1 ? "" : "s"} saved` : `Extract finished: ${r.added || 0} new record${r.added === 1 ? "" : "s"} added`;
-    box.querySelector(".meta").textContent = r.added ? "New rows are marked with an orange edge in the table below." : "Nothing new this time; the table shows everything found so far.";
+    box.querySelector(".meta").textContent = r.added ? "New rows are marked with an orange edge." : "Nothing new this time; the table shows everything found so far.";
     $("#xDismiss").onclick = () => { S.xJustFinished = false; paintRunControls(); };
   } else box.hidden = true;
 }
@@ -844,7 +847,7 @@ function renderExtract(force){
   $("#xState").innerHTML = st ? [
     `<span>Total records: <b>${S.xTotal ?? S.xMap.size}</b></span>`,
     st.paused ? `<span class="due-today">Automatic extract is paused</span>` : `<span>Automatic extract: every 30 minutes</span>`,
-    st.running ? "" : st.lastRun?.finishedAt ? `<span>Last run: <b>${esc(ago(st.lastRun.finishedAt))}</b> · added <b>${st.lastRun.added || 0}</b></span>` : `<span>No runs yet. The first scheduled run starts within 30 minutes of deploying.</span>`,
+    st.running ? "" : st.lastRun?.finishedAt ? `<span>Last run: <b>${esc(ago(st.lastRun.finishedAt))}</b> · ${st.lastRun.added ? `<button class="linkbtn" type="button" data-xlatest>added ${st.lastRun.added}: show them</button>` : "added 0"}</span>` : `<span>No runs yet. The first scheduled run starts within 30 minutes of deploying.</span>`,
     st.lastRun?.errors?.length ? `<span class="due-over" title="${esc(st.lastRun.errors.join(" | "))}">Last run had ${st.lastRun.errors.length} source error${st.lastRun.errors.length === 1 ? "" : "s"}</span>` : ""
   ].join("") : "";
   const all = [...S.xMap.values()];
@@ -868,14 +871,21 @@ function renderExtract(force){
   if (!force && body.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") { S.xPending = true; return; }
   S.xPending = false;
   const has = (v, q) => !q || (v || "").toLowerCase().includes(q);
-  const now = Date.now(), win = { "24h": 864e5, "7d": 7 * 864e5, "30d": 30 * 864e5 }[f.added];
+  const now = Date.now(), win = { "1h": 36e5, "24h": 864e5, "7d": 7 * 864e5, "30d": 30 * 864e5 }[f.added];
+  const lr = S.xState?.lastRun;
+  const sod = new Date(); sod.setHours(0, 0, 0, 0);
+  const inTime = x => f.added === "all" ? true : win ? now - x.addedAt <= win
+    : f.added === "today" ? x.addedAt >= sod.getTime()
+    : f.added === "lastrun" ? !!lr && x.addedAt >= lr.startedAt && x.addedAt <= (lr.finishedAt || now) + 5000
+    : f.added === "custom" ? (!f.from || x.addedAt >= new Date(f.from).getTime()) && (!f.to || x.addedAt <= new Date(f.to).getTime()) : true;
+  $("#xRange").hidden = f.added !== "custom";
   const vmin = f.vmin === "" ? null : Number(f.vmin), vmax = f.vmax === "" ? null : Number(f.vmax);
   const rows = all.filter(x =>
       (f.intent === "all" || x.intent === f.intent)
       && (!f.q || [x.title, x.need, x.personName, x.company, x.location, x.platform, x.remarks, x.budget, assigneeName(x.assignedTo), xCountry(x)].some(v => has(v, f.q)))
       && (f.country === "all" || xCountry(x) === f.country)
       && (vmin === null && vmax === null || ((v) => v !== null && (vmin === null || v >= vmin) && (vmax === null || v <= vmax))(valueUsd(x)))
-      && (!win || now - x.addedAt <= win)
+      && inTime(x)
       && (!f.req || [x.title, x.need, x.budget, S.xIntents[x.intent]].some(v => has(v, f.req)))
       && (!f.who || [x.personName, x.company, x.location, xCountry(x)].some(v => has(v, f.who)))
       && (f.contact === "all" || (f.contact === "any" ? !!(x.contactEmail || x.contactPhone || x.contactUrl) : f.contact === "email" ? !!x.contactEmail : f.contact === "phone" ? !!x.contactPhone : f.contact === "link" ? !!x.contactUrl : !(x.contactEmail || x.contactPhone || x.contactUrl)))
@@ -902,12 +912,22 @@ function renderExtract(force){
       <td><div class="acts" style="flex-direction:column;align-items:stretch"><label class="sr" for="xs-${esc(x.id)}">Status</label><select id="xs-${esc(x.id)}" data-xs="${esc(x.id)}" ${ro ? "disabled" : ""}>${opt(X_STATUS, x.status || "new")}</select>${ro ? "" : `<button class="btn small primary" data-xmsg="${esc(x.id)}">Write message</button>`}${x.leadId ? `<button class="btn small ghost" data-edit="${esc(x.leadId)}">In pipeline</button>` : ro ? "" : `<button class="btn small" data-xlead="${esc(x.id)}">Add to pipeline</button>`}${ro ? "" : `<div class="row" style="gap:4px;justify-content:space-between"><button class="btn small ghost" data-xclose="${esc(x.id)}">${x.status === "closed" ? "Reopen" : "Close"}</button><button class="btn small ghost danger" data-xdel="${esc(x.id)}">Delete</button></div>`}</div></td>
     </tr>`; }).join("");
 }
+// Clear every filter, then show only what the latest run added, newest first.
+function showLatestRun(){
+  S.xf = { ...X_FILTERS_EMPTY, added: "lastrun" };
+  ["#xSearch", "#xVmin", "#xVmax", "#xFrom", "#xTo"].forEach(s => $(s).value = "");
+  $$("#xHead [data-f]").forEach(el => { el.value = S.xf[el.dataset.f] ?? ""; });
+  if (S.tab !== "extract") go("extract");
+  renderExtract(true);
+  $("#xHead").scrollIntoView({ behavior: "smooth", block: "start" });
+  const n = $("#xBody").children.length; toast(n ? `Showing the ${n} record${n === 1 ? "" : "s"} from the latest run` : "The latest run didn't add anything new");
+}
 function buildExtractHead(){
   const sel = (f, label, opts) => `<label class="sr" for="xf-${f}">Filter ${label}</label><select id="xf-${f}" data-f="${f}">${opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join("")}</select>`;
   const txt = (f, label, ph) => `<label class="sr" for="xf-${f}">Filter ${label}</label><input type="search" id="xf-${f}" data-f="${f}" placeholder="${ph}">`;
   $("#xHead").innerHTML = `<tr><th>Added</th><th>Requirement</th><th>Who &amp; where</th><th>Contact (as posted)</th><th>Source</th><th>Assigned to</th><th>Remarks</th><th>Status</th></tr>
   <tr class="fl">
-    <th>${sel("added", "added", [["all", "Any time"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"]])}</th>
+    <th>${sel("added", "added", [["all", "Any time"], ["lastrun", "Latest run"], ["1h", "Last hour"], ["today", "Today"], ["24h", "Last 24 hours"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["custom", "Custom range…"]])}</th>
     <th>${txt("req", "requirement", "Filter…")}</th>
     <th>${txt("who", "who and where", "Name, company, city…")}</th>
     <th>${sel("contact", "contact", [["all", "Any"], ["any", "Has contact"], ["email", "Has email"], ["phone", "Has phone"], ["link", "Has link"], ["none", "No contact"]])}</th>

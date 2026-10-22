@@ -99,6 +99,12 @@
           <span class="note">to</span>
           <label class="sr" for="xVmax">Maximum value in US dollars</label><input type="text" inputmode="numeric" id="xVmax" placeholder="Max $" style="width:110px">
         </div></div>
+      <div class="field" style="flex:0 1 auto" id="xRange" hidden><span class="lbl" id="xRangeLbl">Added between</span>
+        <div class="row" style="gap:6px;flex-wrap:nowrap" role="group" aria-labelledby="xRangeLbl">
+          <label class="sr" for="xFrom">From</label><input type="datetime-local" id="xFrom">
+          <span class="note">and</span>
+          <label class="sr" for="xTo">To</label><input type="datetime-local" id="xTo">
+        </div></div>
       <div class="field" style="flex:0 1 auto;align-self:flex-end"><button class="btn" type="button" id="xReset">Clear all</button></div>
       <span class="note" id="xShowing" style="align-self:flex-end;padding-bottom:10px"></span>
     </div>

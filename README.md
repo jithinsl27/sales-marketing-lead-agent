@@ -27,7 +27,7 @@ It runs on **Google Cloud Run**, stores data in **Firestore**, uses **Gemini 3.8
   - Filter by **Assigned to me**, **Unassigned** or a person.
 - **Filtering:**
   - Every column has its own filter under the header:
-    - **Added:** last 24 hours, 7 days or 30 days.
+    - **Added:** latest run, last hour, today, last 24 hours, 7 days, 30 days, or a custom date-and-time range. After a run, **Show new records** (or "added N: show them") clears the other filters and lists just that run's finds, newest first.
     - **Requirement** and **Who & where:** text.
     - **Contact:** has email, phone or link.
     - **Source:** platform.
